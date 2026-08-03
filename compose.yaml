@@ -1,0 +1,40 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: mini-erp-postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: mini_erp_db
+      POSTGRES_USER: mini_erp_user
+      POSTGRES_PASSWORD: mini_erp_password
+
+    ports:
+      - "5434:5432"
+
+    volumes:
+      - mini_erp_postgres_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mini_erp_user -d mini_erp_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: ./backend
+    container_name: mini-erp-api
+    env_file: ./backend/.env
+    environment:
+      DATABASE_URL: postgresql+psycopg://mini_erp_user:mini_erp_password@postgres:5432/mini_erp_db
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+volumes:
+  mini_erp_postgres_data:
