@@ -1,10 +1,42 @@
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import delete, or_
 
+from app.db.session import SessionLocal
+from app.features.products.models import Category, Product
+from app.features.users.model import User
 from app.main import app
 
 client = TestClient(app)
+
+
+def remove_test_data() -> None:
+    with SessionLocal() as db:
+        db.execute(
+            delete(Product).where(
+                or_(Product.sku.like("SKU-%"), Product.sku.like("CSV-%"))
+            )
+        )
+        db.execute(delete(Category).where(Category.name.like("Child %")))
+        db.execute(
+            delete(Category).where(
+                or_(
+                    Category.name.like("Parent %"),
+                    Category.name.like("Product Category %"),
+                )
+            )
+        )
+        db.execute(delete(User).where(User.username.like("buyer_%")))
+        db.commit()
+
+
+@pytest.fixture(autouse=True)
+def clean_product_test_data():
+    remove_test_data()
+    yield
+    remove_test_data()
 
 
 def admin_headers() -> dict[str, str]:
@@ -121,7 +153,7 @@ def test_duplicate_sku_barcode_and_negative_prices_are_rejected() -> None:
 def test_products_permissions_separate_read_from_manage() -> None:
     suffix = uuid4().hex[:8]
     roles = client.get("/roles", headers=admin_headers()).json()
-    purchasing_role = next(role for role in roles if role["name"] == "purchasing_officer")
+    read_only_role = next(role for role in roles if role["name"] == "sales_officer")
     username = f"buyer_{suffix}"
     created = client.post(
         "/users",
@@ -132,7 +164,7 @@ def test_products_permissions_separate_read_from_manage() -> None:
             "last_name": "Officer",
             "email": f"{username}@example.com",
             "password": "Passw0rd!",
-            "role_ids": [purchasing_role["id"]],
+            "role_ids": [read_only_role["id"]],
         },
     )
     assert created.status_code == 201

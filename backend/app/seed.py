@@ -1,4 +1,4 @@
-"""Idempotent development seed data for users, RBAC, and the product catalog."""
+"""Idempotent development seed data for RBAC and implemented master data."""
 
 from decimal import Decimal
 
@@ -6,8 +6,10 @@ from sqlalchemy import select
 
 from app.core.security import hash_password
 from app.db.session import SessionLocal
+from app.features.inventory.models import StockLevel, StockMovement
 from app.features.products.models import Category, Product
 from app.features.users.model import Permission, Role, User
+from app.features.warehouses.models import Warehouse
 
 PERMISSIONS = {
     "users.manage": "Create, update, deactivate and reset users",
@@ -74,7 +76,7 @@ ROLE_PERMISSIONS = {
         "purchase_orders.cancel", "goods_receipts.read",
     },
     "sales_officer": {
-        "products.read", "customers.read", "customers.manage", "inventory.read",
+        "products.read", "warehouses.read", "customers.read", "customers.manage", "inventory.read",
         "quotations.read", "quotations.manage", "sales_orders.read",
         "sales_orders.create", "sales_orders.update", "sales_orders.confirm",
         "invoices.read", "invoices.create",
@@ -86,14 +88,16 @@ ROLE_PERMISSIONS = {
         "sales_orders.read", "sales_orders.deliver",
     },
     "accountant": {
-        "products.read", "accounts.read", "accounts.manage", "payments.read", "payments.create",
+        "products.read", "warehouses.read", "accounts.read", "accounts.manage",
+        "payments.read", "payments.create",
         "invoices.read", "invoices.cancel", "purchase_orders.read",
         "journal_entries.read", "customer_statements.read", "supplier_statements.read",
         "reports.profit.read", "reports.receivables.read",
         "reports.inventory_valuation.read",
     },
     "manager": {
-        "products.read", "purchase_orders.read", "purchase_orders.approve", "sales_orders.read",
+        "products.read", "warehouses.read", "purchase_orders.read",
+        "purchase_orders.approve", "sales_orders.read",
         "invoices.read", "inventory.read", "inventory.low_stock.read",
         "inventory.count.approve", "reports.profit.read", "reports.top_products.read",
         "reports.inventory_valuation.read", "reports.receivables.read",
@@ -222,6 +226,19 @@ PRODUCT_DATA = [
     },
 ]
 
+WAREHOUSE_DATA = [
+    {
+        "code": "WH-AMM-MAIN",
+        "name": "Amman Main Warehouse",
+        "address": "Sahab Industrial Area, Amman",
+    },
+    {
+        "code": "WH-IRB-NORTH",
+        "name": "Irbid North Warehouse",
+        "address": "Al-Hassan Industrial Estate, Irbid",
+    },
+]
+
 
 def seed_catalog(db) -> tuple[int, int]:
     categories: dict[str, Category] = {}
@@ -258,6 +275,60 @@ def seed_catalog(db) -> tuple[int, int]:
         db.add(product)
         created_products += 1
     return created_categories, created_products
+
+
+def seed_warehouses(db) -> int:
+    created_count = 0
+    for item in WAREHOUSE_DATA:
+        warehouse = db.scalar(select(Warehouse).where(Warehouse.code == item["code"]))
+        if warehouse is not None:
+            continue
+        db.add(Warehouse(**item))
+        created_count += 1
+    return created_count
+
+
+def seed_inventory(db, *, admin_id: int) -> int:
+    products = list(db.scalars(select(Product).where(Product.is_active.is_(True))).all())
+    warehouses = list(
+        db.scalars(select(Warehouse).where(Warehouse.is_active.is_(True))).all()
+    )
+    created_count = 0
+    for product in products:
+        for warehouse in warehouses:
+            existing = db.scalar(
+                select(StockLevel).where(
+                    StockLevel.product_id == product.id,
+                    StockLevel.warehouse_id == warehouse.id,
+                )
+            )
+            if existing is not None:
+                continue
+            quantity = Decimal(
+                (sum(ord(character) for character in product.sku) + warehouse.id * 13)
+                % 61
+            )
+            db.add(
+                StockLevel(
+                    product_id=product.id,
+                    warehouse_id=warehouse.id,
+                    quantity=quantity,
+                )
+            )
+            if quantity > 0:
+                db.add(
+                    StockMovement(
+                        product_id=product.id,
+                        warehouse_id=warehouse.id,
+                        type="in",
+                        quantity=quantity,
+                        reference_type="opening_stock",
+                        reason="Development seed opening stock",
+                        created_by=admin_id,
+                    )
+                )
+            created_count += 1
+    return created_count
 
 
 def seed() -> None:
@@ -299,10 +370,15 @@ def seed() -> None:
         elif admin.email != "admin@example.com":
             admin.email = "admin@example.com"
         created_categories, created_products = seed_catalog(db)
+        created_warehouses = seed_warehouses(db)
+        db.flush()
+        created_stock_levels = seed_inventory(db, admin_id=admin.id)
         db.commit()
         print(
             "Seed complete. "
-            f"Added {created_categories} categories and {created_products} products. "
+            f"Added {created_categories} categories, {created_products} products, "
+            f"and {created_warehouses} warehouses. "
+            f"Added {created_stock_levels} stock levels. "
             "Admin login: admin / Passw0rd!"
         )
 

@@ -495,7 +495,59 @@ sku,name,barcode,category_id,cost_price,sale_price,min_stock_level
 
 The import response contains the number of created rows and field-level errors for every rejected row.
 
-## 20. Important HTTP Status Codes
+## 20. Warehouses
+
+Warehouse endpoints:
+
+```text
+GET    /warehouses?page=1&size=20&search=&is_active=
+GET    /warehouses/{warehouse_id}
+POST   /warehouses
+PUT    /warehouses/{warehouse_id}
+DELETE /warehouses/{warehouse_id}
+```
+
+Reading requires `warehouses.read`; writing requires `warehouses.manage`.
+
+Example warehouse body:
+
+```json
+{
+  "code": "WH-AMM-MAIN",
+  "name": "Amman Main Warehouse",
+  "address": "Sahab Industrial Area, Amman"
+}
+```
+
+Warehouse codes are normalized to uppercase and must be unique. Deletion is implemented as soft deactivation, and a warehouse holding stock cannot be deactivated.
+
+## 21. Inventory Levels and Movements
+
+Inventory endpoints:
+
+```text
+GET  /inventory/stock?product_id=&warehouse_id=&search=&page=&size=
+GET  /inventory/movements?product_id=&warehouse_id=&movement_type=&date_from=&date_to=
+POST /inventory/adjustments
+GET  /inventory/low-stock
+```
+
+Manual adjustment body:
+
+```json
+{
+  "product_id": 1,
+  "warehouse_id": 1,
+  "quantity_change": "5.00",
+  "reason": "Physical count correction"
+}
+```
+
+Positive changes add stock and negative changes remove stock. Every change locks the affected inventory row, updates the current level, records an immutable movement, and writes an audit entry in one database transaction. Any operation that would create negative stock is rejected with `409 Conflict`.
+
+Reading stock and movements requires `inventory.read`; manual adjustments require `inventory.adjust`; low-stock alerts require `inventory.low_stock.read`.
+
+## 22. Important HTTP Status Codes
 
 | Status | Meaning |
 |---|---|
@@ -515,7 +567,7 @@ Standard error envelope:
 }
 ```
 
-## 21. Recommended Test Flow
+## 23. Recommended Test Flow
 
 Test the complete feature in this order:
 
@@ -529,11 +581,13 @@ POST /users
 PUT /users/{user_id}
 GET /users/{user_id}
 GET /audit-logs
+GET /warehouses
+POST /warehouses
 POST /auth/refresh
 POST /auth/logout
 ```
 
-## 22. Quality Checks
+## 24. Quality Checks
 
 Run tests:
 
