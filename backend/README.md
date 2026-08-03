@@ -2,7 +2,7 @@
 
 Backend service built with FastAPI, SQLAlchemy 2.0, PostgreSQL, Alembic, JWT authentication, and role-based access control (RBAC).
 
-The currently completed scope includes project setup, users, authentication, roles, permissions, refresh-token revocation, audit logging, categories, and products.
+The currently completed scope includes project setup, authentication, users, roles, permissions, refresh-token revocation, audit logging, categories, products, warehouses, inventory levels, inventory movements, manual stock adjustments, and low-stock alerts.
 
 ## 1. Run the Project
 
@@ -394,13 +394,20 @@ Do not assume role or permission IDs are the same in every database. Read the cu
 
 ## 16. Current Permissions
 
-Permissions implemented in Phase 1:
+Permissions used by the currently implemented modules:
 
 | Code | Purpose |
 |---|---|
 | `users.manage` | List, create, update, deactivate users, and reset passwords |
 | `roles.manage` | List and create roles, and assign permissions |
 | `audit.read` | Read audit logs |
+| `products.read` | View products and categories |
+| `products.manage` | Create, update, deactivate, and import products and categories |
+| `warehouses.read` | View warehouses |
+| `warehouses.manage` | Create, update, and deactivate warehouses |
+| `inventory.read` | View stock levels and movement history |
+| `inventory.adjust` | Record manual stock adjustments |
+| `inventory.low_stock.read` | View low-stock alerts |
 
 New permissions should be added when their corresponding features and protected endpoints are implemented.
 
@@ -583,6 +590,10 @@ GET /users/{user_id}
 GET /audit-logs
 GET /warehouses
 POST /warehouses
+GET /inventory/stock
+POST /inventory/adjustments
+GET /inventory/movements
+GET /inventory/low-stock
 POST /auth/refresh
 POST /auth/logout
 ```
@@ -601,10 +612,16 @@ Run Ruff:
 docker compose run --rm api ruff check app tests
 ```
 
-Run mypy on the implemented modules:
+Run mypy:
 
 ```bash
-docker compose run --rm api mypy app/core app/db app/features/users app/features/audit app/main.py app/routers.py app/seed.py
+docker compose run --rm api mypy app
+```
+
+Check for migration drift:
+
+```bash
+docker compose run --rm api alembic check
 ```
 
 Every database schema change must be delivered through an Alembic migration. Apply migrations to a fresh database before considering a feature complete.
