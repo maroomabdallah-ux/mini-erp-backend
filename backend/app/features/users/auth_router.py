@@ -6,6 +6,8 @@ from app.features.users.schemas import (
     AccessTokenResponse,
     CurrentUserResponse,
     LoginRequest,
+    PasswordChange,
+    ProfileUpdate,
     RefreshRequest,
     TokenResponse,
     UserResponse,
@@ -45,3 +47,44 @@ def me(current_user: CurrentUser):
         **user_data,
         permissions=auth_service.permission_codes(current_user),
     )
+
+
+@router.put("/me", response_model=CurrentUserResponse)
+def update_me(
+    data: ProfileUpdate,
+    request: Request,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+):
+    from app.features.users import service
+
+    updated = service.update_own_profile(
+        db,
+        current_user,
+        data,
+        ip_address=request.client.host if request.client else None,
+    )
+    user_data = UserResponse.model_validate(updated).model_dump()
+    return CurrentUserResponse(
+        **user_data,
+        permissions=auth_service.permission_codes(updated),
+    )
+
+
+@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
+def change_password(
+    data: PasswordChange,
+    request: Request,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+) -> Response:
+    from app.features.users import service
+
+    service.change_own_password(
+        db,
+        current_user,
+        current_password=data.current_password,
+        new_password=data.new_password,
+        ip_address=request.client.host if request.client else None,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

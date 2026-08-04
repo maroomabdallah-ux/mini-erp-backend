@@ -8,9 +8,7 @@ client = TestClient(app)
 
 
 def admin_headers() -> dict[str, str]:
-    response = client.post(
-        "/auth/login", json={"login": "admin", "password": "Passw0rd!"}
-    )
+    response = client.post("/auth/login", json={"login": "admin", "password": "Passw0rd!"})
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
@@ -62,9 +60,7 @@ def test_roles_list_is_summary_and_role_detail_has_permissions() -> None:
         "/auth/login",
         json={"login": "admin", "password": "Passw0rd!"},
     )
-    headers = {
-        "Authorization": f"Bearer {login_response.json()['access_token']}"
-    }
+    headers = {"Authorization": f"Bearer {login_response.json()['access_token']}"}
 
     list_response = client.get("/roles", headers=headers)
     assert list_response.status_code == 200
@@ -89,9 +85,7 @@ def test_audit_logs_serialize_ip_addresses() -> None:
         "/auth/login",
         json={"login": "admin", "password": "Passw0rd!"},
     )
-    headers = {
-        "Authorization": f"Bearer {login_response.json()['access_token']}"
-    }
+    headers = {"Authorization": f"Bearer {login_response.json()['access_token']}"}
 
     response = client.get("/audit-logs?page=1&size=20", headers=headers)
 
@@ -102,9 +96,7 @@ def test_audit_logs_serialize_ip_addresses() -> None:
 
 
 def test_users_list_supports_search_and_pagination() -> None:
-    response = client.get(
-        "/users?page=1&size=5&search=admin", headers=admin_headers()
-    )
+    response = client.get("/users?page=1&size=5&search=admin", headers=admin_headers())
     assert response.status_code == 200
     body = response.json()
     assert {"items", "page", "size", "total"} <= body.keys()
@@ -116,9 +108,7 @@ def test_users_list_supports_search_and_pagination() -> None:
 
 def test_admin_cannot_deactivate_own_account() -> None:
     me = client.get("/auth/me", headers=admin_headers()).json()
-    response = client.post(
-        f"/users/{me['id']}/deactivate", headers=admin_headers()
-    )
+    response = client.post(f"/users/{me['id']}/deactivate", headers=admin_headers())
     assert response.status_code == 422
     assert "own account" in response.json()["detail"]
 
@@ -156,15 +146,17 @@ def test_role_lifecycle_and_admin_safeguards() -> None:
     assert deactivated.json()["is_active"] is False
 
     admin_role = next(
-        role for role in client.get("/roles", headers=headers).json()
-        if role["name"] == "admin"
+        role for role in client.get("/roles", headers=headers).json() if role["name"] == "admin"
     )
     assert client.delete(f"/roles/{admin_role['id']}", headers=headers).status_code == 422
-    assert client.put(
-        f"/roles/{admin_role['id']}/permissions",
-        headers=headers,
-        json={"permission_ids": []},
-    ).status_code == 422
+    assert (
+        client.put(
+            f"/roles/{admin_role['id']}/permissions",
+            headers=headers,
+            json={"permission_ids": []},
+        ).status_code
+        == 422
+    )
 
 
 def test_user_without_permission_cannot_access_users() -> None:
@@ -188,3 +180,53 @@ def test_user_without_permission_cannot_access_users() -> None:
     )
     headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
     assert client.get("/users", headers=headers).status_code == 403
+
+
+def test_user_can_update_own_profile_and_change_password() -> None:
+    suffix = uuid4().hex[:8]
+    username = f"settings_{suffix}"
+    created = client.post(
+        "/users",
+        headers=admin_headers(),
+        json={
+            "username": username,
+            "first_name": "Settings",
+            "last_name": "User",
+            "email": f"{username}@example.com",
+            "password": "Passw0rd!",
+            "role_ids": [],
+        },
+    )
+    assert created.status_code == 201
+    login = client.post("/auth/login", json={"login": username, "password": "Passw0rd!"})
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    updated = client.put(
+        "/auth/me",
+        headers=headers,
+        json={
+            "first_name": "Updated",
+            "last_name": "Profile",
+            "email": f"updated_{username}@example.com",
+        },
+    )
+    assert updated.status_code == 200
+    assert updated.json()["first_name"] == "Updated"
+
+    wrong_password = client.post(
+        "/auth/change-password",
+        headers=headers,
+        json={"current_password": "WrongPass1", "new_password": "NewPassw0rd!"},
+    )
+    assert wrong_password.status_code == 422
+
+    changed = client.post(
+        "/auth/change-password",
+        headers=headers,
+        json={"current_password": "Passw0rd!", "new_password": "NewPassw0rd!"},
+    )
+    assert changed.status_code == 204
+    assert (
+        client.post("/auth/login", json={"login": username, "password": "NewPassw0rd!"}).status_code
+        == 200
+    )

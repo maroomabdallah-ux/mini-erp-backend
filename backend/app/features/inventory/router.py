@@ -6,11 +6,16 @@ from fastapi import APIRouter, Depends, Query, Request
 from app.core.dependencies import DatabaseSession, require_permission
 from app.features.inventory import service
 from app.features.inventory.schemas import (
+    InventoryCountCreate,
+    InventoryCountListResponse,
+    InventoryCountResponse,
     LowStockResponse,
     StockAdjustmentCreate,
     StockLevelResponse,
     StockListResponse,
     StockMovementListResponse,
+    StockTransferCreate,
+    StockTransferResponse,
 )
 from app.features.users.model import User
 
@@ -72,9 +77,17 @@ def create_adjustment(
     db: DatabaseSession,
     actor: User = Depends(require_permission("inventory.adjust")),
 ):
-    return service.adjust_stock(
-        db, data, actor_id=actor.id, ip_address=_ip(request)
-    )
+    return service.adjust_stock(db, data, actor_id=actor.id, ip_address=_ip(request))
+
+
+@router.post("/transfers", response_model=StockTransferResponse, status_code=201)
+def create_transfer(
+    data: StockTransferCreate,
+    request: Request,
+    db: DatabaseSession,
+    actor: User = Depends(require_permission("inventory.transfer")),
+):
+    return service.transfer_stock(db, data, actor_id=actor.id, ip_address=_ip(request))
 
 
 @router.get("/low-stock", response_model=list[LowStockResponse])
@@ -83,3 +96,34 @@ def get_low_stock(
     actor: User = Depends(require_permission("inventory.low_stock.read")),
 ):
     return service.list_low_stock(db)
+
+
+@router.get("/counts", response_model=InventoryCountListResponse)
+def get_counts(
+    db: DatabaseSession,
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=100),
+    status: Literal["pending", "approved"] | None = None,
+    actor: User = Depends(require_permission("inventory.read")),
+):
+    return service.list_counts(db, page=page, size=size, status=status)
+
+
+@router.post("/counts", response_model=InventoryCountResponse, status_code=201)
+def create_count(
+    data: InventoryCountCreate,
+    request: Request,
+    db: DatabaseSession,
+    actor: User = Depends(require_permission("inventory.count")),
+):
+    return service.create_count(db, data, actor_id=actor.id, ip_address=_ip(request))
+
+
+@router.post("/counts/{count_id}/approve", response_model=InventoryCountResponse)
+def approve_count(
+    count_id: int,
+    request: Request,
+    db: DatabaseSession,
+    actor: User = Depends(require_permission("inventory.count.approve")),
+):
+    return service.approve_count(db, count_id, actor_id=actor.id, ip_address=_ip(request))

@@ -1,0 +1,1 @@
+"""Supplier master-data feature."""

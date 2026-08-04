@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.features.audit.router import router as audit_router
 from app.features.inventory.router import router as inventory_router
 from app.features.products.router import router as products_router
+from app.features.suppliers.router import router as suppliers_router
 from app.features.users.auth_router import router as auth_router
 from app.features.users.roles_router import router as roles_router
 from app.features.users.router import router as users_router
@@ -15,5 +16,6 @@ api_router.include_router(users_router)
 api_router.include_router(roles_router)
 api_router.include_router(audit_router)
 api_router.include_router(products_router)
+api_router.include_router(suppliers_router)
 api_router.include_router(warehouses_router)
 api_router.include_router(inventory_router)

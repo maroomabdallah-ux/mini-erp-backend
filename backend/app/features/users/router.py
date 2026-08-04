@@ -45,9 +45,7 @@ def create_user(
     db: DatabaseSession,
     actor: User = Depends(require_permission("users.manage")),
 ):
-    return service.create_user(
-        db, data, actor_id=actor.id, ip_address=_ip(request)
-    )
+    return service.create_user(db, data, actor_id=actor.id, ip_address=_ip(request))
 
 
 @router.put("/{user_id}", response_model=UserResponse)
@@ -58,9 +56,7 @@ def update_user(
     db: DatabaseSession,
     actor: User = Depends(require_permission("users.manage")),
 ):
-    return service.update_user(
-        db, user_id, data, actor_id=actor.id, ip_address=_ip(request)
-    )
+    return service.update_user(db, user_id, data, actor_id=actor.id, ip_address=_ip(request))
 
 
 @router.post("/{user_id}/deactivate", response_model=UserResponse)
@@ -70,9 +66,7 @@ def deactivate_user(
     db: DatabaseSession,
     actor: User = Depends(require_permission("users.manage")),
 ):
-    return service.deactivate_user(
-        db, user_id, actor_id=actor.id, ip_address=_ip(request)
-    )
+    return service.deactivate_user(db, user_id, actor_id=actor.id, ip_address=_ip(request))
 
 
 @router.post("/{user_id}/reset-password", response_model=UserResponse)

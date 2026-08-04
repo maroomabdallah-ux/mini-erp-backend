@@ -44,9 +44,7 @@ class ProductCreate(BaseModel):
     category_id: int | None = Field(default=None, gt=0)
     cost_price: Money = Field(default=Decimal("0.00"), ge=0, max_digits=12, decimal_places=2)
     sale_price: Money = Field(default=Decimal("0.00"), ge=0, max_digits=12, decimal_places=2)
-    min_stock_level: Money = Field(
-        default=Decimal("0.00"), ge=0, max_digits=12, decimal_places=2
-    )
+    min_stock_level: int = Field(default=0, ge=0)
 
     @field_validator("sku")
     @classmethod
@@ -72,9 +70,7 @@ class ProductUpdate(BaseModel):
     category_id: int | None = Field(default=None, gt=0)
     cost_price: Money | None = Field(default=None, ge=0, max_digits=12, decimal_places=2)
     sale_price: Money | None = Field(default=None, ge=0, max_digits=12, decimal_places=2)
-    min_stock_level: Money | None = Field(
-        default=None, ge=0, max_digits=12, decimal_places=2
-    )
+    min_stock_level: int | None = Field(default=None, ge=0)
 
     @field_validator("sku")
     @classmethod
@@ -103,7 +99,7 @@ class ProductResponse(BaseModel):
     category: CategorySummary | None
     cost_price: Decimal
     sale_price: Decimal
-    min_stock_level: Decimal
+    min_stock_level: int
     is_active: bool
     created_at: datetime
     updated_at: datetime

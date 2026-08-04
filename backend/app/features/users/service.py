@@ -1,13 +1,13 @@
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import NotFoundError
-from app.core.security import hash_password
+from app.core.exceptions import BusinessRuleError, NotFoundError
+from app.core.security import hash_password, verify_password
 from app.features.audit.service import add_audit_log
 from app.features.users import business, repository
 from app.features.users.exceptions import UserNotFoundError
 from app.features.users.model import Permission, Role, User
-from app.features.users.schemas import RoleCreate, RoleUpdate, UserCreate, UserUpdate
+from app.features.users.schemas import ProfileUpdate, RoleCreate, RoleUpdate, UserCreate, UserUpdate
 
 
 def _roles_or_error(db: Session, role_ids: list[int]) -> list[Role]:
@@ -23,13 +23,9 @@ def _roles_or_error(db: Session, role_ids: list[int]) -> list[Role]:
     return roles
 
 
-def get_users(
-    db: Session, page: int = 1, size: int = 20, search: str | None = None
-) -> dict:
+def get_users(db: Session, page: int = 1, size: int = 20, search: str | None = None) -> dict:
     return {
-        "items": repository.get_all_users(
-            db, offset=(page - 1) * size, limit=size, search=search
-        ),
+        "items": repository.get_all_users(db, offset=(page - 1) * size, limit=size, search=search),
         "page": page,
         "size": size,
         "total": repository.count_users(db, search=search),
@@ -189,6 +185,71 @@ def reset_user_password(
     return get_user(db, user.id)
 
 
+def update_own_profile(
+    db: Session,
+    user: User,
+    data: ProfileUpdate,
+    *,
+    ip_address: str | None,
+) -> User:
+    old_values = {
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "email": user.email,
+    }
+    email = str(data.email).lower()
+    if email != user.email:
+        business.ensure_email_is_available(repository.get_user_by_email(db, email), email)
+    user.first_name = data.first_name.strip()
+    user.last_name = data.last_name.strip()
+    user.email = email
+    add_audit_log(
+        db,
+        user_id=user.id,
+        action="update_profile",
+        table_name="users",
+        record_id=user.id,
+        ip_address=ip_address,
+        old_values=old_values,
+        new_values={
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "email": user.email,
+        },
+    )
+    db.commit()
+    return get_user(db, user.id)
+
+
+def change_own_password(
+    db: Session,
+    user: User,
+    *,
+    current_password: str,
+    new_password: str,
+    ip_address: str | None,
+) -> None:
+    if not verify_password(current_password, user.hashed_password):
+        raise BusinessRuleError(
+            "Current password is incorrect.",
+            field_errors={"current_password": "Current password is incorrect."},
+        )
+    business.validate_password(new_password)
+    if verify_password(new_password, user.hashed_password):
+        raise BusinessRuleError("New password must be different from the current password.")
+    user.hashed_password = hash_password(new_password)
+    repository.revoke_user_refresh_tokens(db, user.id)
+    add_audit_log(
+        db,
+        user_id=user.id,
+        action="change_password",
+        table_name="users",
+        record_id=user.id,
+        ip_address=ip_address,
+    )
+    db.commit()
+
+
 def get_roles(db: Session) -> list[Role]:
     return repository.get_all_roles(db)
 
@@ -204,9 +265,7 @@ def get_role(db: Session, role_id: int) -> Role:
     return role
 
 
-def create_role(
-    db: Session, data: RoleCreate, *, actor_id: int, ip_address: str | None
-) -> Role:
+def create_role(db: Session, data: RoleCreate, *, actor_id: int, ip_address: str | None) -> Role:
     if repository.get_role_by_name(db, data.name):
         from app.core.exceptions import ConflictError
 
@@ -261,9 +320,7 @@ def update_role(
     return get_role(db, role.id)
 
 
-def deactivate_role(
-    db: Session, role_id: int, *, actor_id: int, ip_address: str | None
-) -> Role:
+def deactivate_role(db: Session, role_id: int, *, actor_id: int, ip_address: str | None) -> Role:
     from app.core.exceptions import BusinessRuleError
 
     role = get_role(db, role_id)

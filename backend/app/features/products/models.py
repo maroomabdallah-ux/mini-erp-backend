@@ -6,6 +6,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Integer,
     Numeric,
     String,
     UniqueConstraint,
@@ -61,9 +62,7 @@ class Product(Base):
     )
     cost_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"))
     sale_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"))
-    min_stock_level: Mapped[Decimal] = mapped_column(
-        Numeric(12, 2), default=Decimal("0.00")
-    )
+    min_stock_level: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

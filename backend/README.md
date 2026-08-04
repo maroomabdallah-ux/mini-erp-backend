@@ -2,7 +2,7 @@
 
 Backend service built with FastAPI, SQLAlchemy 2.0, PostgreSQL, Alembic, JWT authentication, and role-based access control (RBAC).
 
-The currently completed scope includes project setup, authentication, users, roles, permissions, refresh-token revocation, audit logging, categories, products, warehouses, inventory levels, inventory movements, manual stock adjustments, and low-stock alerts.
+The currently completed scope includes project setup, authentication, users, roles, permissions, refresh-token revocation, audit logging, categories, products, warehouses, inventory levels, inventory movements, manual stock adjustments, warehouse stock transfers, and low-stock alerts.
 
 ## 1. Run the Project
 
@@ -407,6 +407,9 @@ Permissions used by the currently implemented modules:
 | `warehouses.manage` | Create, update, and deactivate warehouses |
 | `inventory.read` | View stock levels and movement history |
 | `inventory.adjust` | Record manual stock adjustments |
+| `inventory.transfer` | Transfer stock between warehouses |
+| `inventory.count` | Record physical stock counts |
+| `inventory.count.approve` | Approve physical counts and apply variances |
 | `inventory.low_stock.read` | View low-stock alerts |
 
 New permissions should be added when their corresponding features and protected endpoints are implemented.
@@ -528,7 +531,34 @@ Example warehouse body:
 
 Warehouse codes are normalized to uppercase and must be unique. Deletion is implemented as soft deactivation, and a warehouse holding stock cannot be deactivated.
 
-## 21. Inventory Levels and Movements
+## 21. Suppliers
+
+Supplier endpoints:
+
+```text
+GET    /suppliers?page=1&size=20&search=&is_active=
+GET    /suppliers/{supplier_id}
+POST   /suppliers
+PUT    /suppliers/{supplier_id}
+DELETE /suppliers/{supplier_id}
+```
+
+Reading requires `suppliers.read`; writing requires `suppliers.manage`.
+
+Example supplier body:
+
+```json
+{
+  "name": "Jordan Office Solutions",
+  "email": "purchasing@jos.example",
+  "phone": "+962 6 555 0100",
+  "credit_terms": "Net 30"
+}
+```
+
+Supplier email addresses are validated and normalized to lowercase. Search covers name, email, phone, and credit terms. Deletion is implemented as soft deactivation, and all create, update, and deactivate operations are written to the audit log.
+
+## 22. Inventory Levels and Movements
 
 Inventory endpoints:
 
@@ -536,6 +566,10 @@ Inventory endpoints:
 GET  /inventory/stock?product_id=&warehouse_id=&search=&page=&size=
 GET  /inventory/movements?product_id=&warehouse_id=&movement_type=&date_from=&date_to=
 POST /inventory/adjustments
+POST /inventory/transfers
+GET  /inventory/counts?status=&page=&size=
+POST /inventory/counts
+POST /inventory/counts/{count_id}/approve
 GET  /inventory/low-stock
 ```
 
@@ -545,16 +579,34 @@ Manual adjustment body:
 {
   "product_id": 1,
   "warehouse_id": 1,
-  "quantity_change": "5.00",
+  "quantity_change": 5,
   "reason": "Physical count correction"
 }
 ```
 
 Positive changes add stock and negative changes remove stock. Every change locks the affected inventory row, updates the current level, records an immutable movement, and writes an audit entry in one database transaction. Any operation that would create negative stock is rejected with `409 Conflict`.
 
-Reading stock and movements requires `inventory.read`; manual adjustments require `inventory.adjust`; low-stock alerts require `inventory.low_stock.read`.
+Transfer body:
 
-## 22. Important HTTP Status Codes
+```json
+{
+  "product_id": 1,
+  "source_warehouse_id": 1,
+  "destination_warehouse_id": 2,
+  "quantity": 6,
+  "reason": "Replenish secondary location"
+}
+```
+
+A transfer validates two different active warehouses and sufficient source stock, locks the affected inventory rows, and updates both quantities atomically. It records linked `out` and `in` movements under one generated `TRF-...` reference and writes one audit entry.
+
+Physical counts use a two-step workflow: `inventory.count` records the system snapshot and actual counted quantity as pending; `inventory.count.approve` validates that stock has not changed, applies the variance, records a linked movement, and approves the count. Stale counts are rejected instead of overwriting newer inventory activity.
+
+Reading stock and movements requires `inventory.read`; manual adjustments require `inventory.adjust`; transfers require `inventory.transfer`; physical-count entry requires `inventory.count`; approval requires `inventory.count.approve`; low-stock alerts require `inventory.low_stock.read`.
+
+All inventory quantities and minimum-stock thresholds are whole units. Fractional quantities are rejected with `422 Unprocessable Entity`; prices and monetary values retain two decimal places.
+
+## 23. Important HTTP Status Codes
 
 | Status | Meaning |
 |---|---|
@@ -574,13 +626,15 @@ Standard error envelope:
 }
 ```
 
-## 23. Recommended Test Flow
+## 24. Recommended Test Flow
 
 Test the complete feature in this order:
 
 ```text
 POST /auth/login
 GET /auth/me
+PUT /auth/me
+POST /auth/change-password
 GET /roles
 POST /roles
 PUT /roles/{role_id}/permissions
@@ -592,13 +646,17 @@ GET /warehouses
 POST /warehouses
 GET /inventory/stock
 POST /inventory/adjustments
+POST /inventory/transfers
+GET /inventory/counts
+POST /inventory/counts
+POST /inventory/counts/{count_id}/approve
 GET /inventory/movements
 GET /inventory/low-stock
 POST /auth/refresh
 POST /auth/logout
 ```
 
-## 24. Quality Checks
+## 25. Quality Checks
 
 Run tests:
 

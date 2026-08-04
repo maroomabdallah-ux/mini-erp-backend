@@ -5,7 +5,7 @@ from typing import cast
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.features.inventory.models import StockLevel, StockMovement
+from app.features.inventory.models import InventoryCount, StockLevel, StockMovement
 from app.features.products.models import Product
 
 
@@ -215,3 +215,57 @@ def warehouse_stock_quantity(db: Session, warehouse_id: int) -> Decimal:
         )
     )
     return Decimal(value or 0)
+
+
+def list_inventory_counts(
+    db: Session, *, offset: int, limit: int, status: str | None
+) -> list[InventoryCount]:
+    statement = select(InventoryCount).options(
+        selectinload(InventoryCount.product), selectinload(InventoryCount.warehouse)
+    )
+    if status is not None:
+        statement = statement.where(InventoryCount.status == status)
+    return list(
+        db.scalars(
+            statement.order_by(InventoryCount.created_at.desc(), InventoryCount.id.desc())
+            .offset(offset)
+            .limit(limit)
+        ).all()
+    )
+
+
+def count_inventory_counts(db: Session, *, status: str | None) -> int:
+    statement = select(func.count(InventoryCount.id))
+    if status is not None:
+        statement = statement.where(InventoryCount.status == status)
+    return int(db.scalar(statement) or 0)
+
+
+def get_inventory_count_for_update(db: Session, count_id: int) -> InventoryCount | None:
+    return cast(
+        InventoryCount | None,
+        db.scalar(
+            select(InventoryCount)
+            .options(
+                selectinload(InventoryCount.product),
+                selectinload(InventoryCount.warehouse),
+            )
+            .where(InventoryCount.id == count_id)
+            .with_for_update()
+        ),
+    )
+
+
+def pending_inventory_count_exists(db: Session, product_id: int, warehouse_id: int) -> bool:
+    return (
+        db.scalar(
+            select(InventoryCount.id)
+            .where(
+                InventoryCount.product_id == product_id,
+                InventoryCount.warehouse_id == warehouse_id,
+                InventoryCount.status == "pending",
+            )
+            .limit(1)
+        )
+        is not None
+    )

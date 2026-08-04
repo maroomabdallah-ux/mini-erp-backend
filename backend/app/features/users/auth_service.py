@@ -1,5 +1,6 @@
 from collections import defaultdict, deque
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
 from sqlalchemy.orm import Session
 
@@ -47,9 +48,7 @@ def _issue_tokens(db: Session, user: User) -> tuple[str, str]:
     return access_token, refresh_token
 
 
-def login(
-    db: Session, login_value: str, password: str, ip_address: str
-) -> tuple[str, str, User]:
+def login(db: Session, login_value: str, password: str, ip_address: str) -> tuple[str, str, User]:
     _check_rate_limit(ip_address)
     user = repository.get_user_by_login(db, login_value)
     if user is None or not verify_password(password, user.hashed_password):
@@ -87,7 +86,7 @@ def refresh(db: Session, raw_token: str) -> str:
         or not stored.user.is_active
     ):
         raise UnauthorizedError("Refresh token is invalid or revoked.")
-    return create_access_token(stored.user_id)
+    return cast(str, create_access_token(stored.user_id))
 
 
 def logout(db: Session, raw_token: str) -> None:

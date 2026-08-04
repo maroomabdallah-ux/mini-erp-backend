@@ -62,9 +62,7 @@ def update_role(
     db: DatabaseSession,
     actor: User = Depends(require_permission("roles.manage")),
 ):
-    return service.update_role(
-        db, role_id, data, actor_id=actor.id, ip_address=_ip(request)
-    )
+    return service.update_role(db, role_id, data, actor_id=actor.id, ip_address=_ip(request))
 
 
 @router.delete("/{role_id}", response_model=RoleResponse)
@@ -74,9 +72,7 @@ def deactivate_role(
     db: DatabaseSession,
     actor: User = Depends(require_permission("roles.manage")),
 ):
-    return service.deactivate_role(
-        db, role_id, actor_id=actor.id, ip_address=_ip(request)
-    )
+    return service.deactivate_role(db, role_id, actor_id=actor.id, ip_address=_ip(request))
 
 
 @router.put("/{role_id}/permissions", response_model=RoleResponse)

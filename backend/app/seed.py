@@ -71,38 +71,97 @@ ROLE_NAMES = [
 
 ROLE_PERMISSIONS = {
     "purchasing_officer": {
-        "products.read", "products.manage", "warehouses.read", "suppliers.read", "suppliers.manage",
-        "purchase_orders.read", "purchase_orders.create", "purchase_orders.update",
-        "purchase_orders.cancel", "goods_receipts.read",
+        "products.read",
+        "products.manage",
+        "warehouses.read",
+        "suppliers.read",
+        "suppliers.manage",
+        "purchase_orders.read",
+        "purchase_orders.create",
+        "purchase_orders.update",
+        "purchase_orders.cancel",
+        "goods_receipts.read",
     },
     "sales_officer": {
-        "products.read", "warehouses.read", "customers.read", "customers.manage", "inventory.read",
-        "quotations.read", "quotations.manage", "sales_orders.read",
-        "sales_orders.create", "sales_orders.update", "sales_orders.confirm",
-        "invoices.read", "invoices.create",
+        "products.read",
+        "warehouses.read",
+        "customers.read",
+        "customers.manage",
+        "inventory.read",
+        "quotations.read",
+        "quotations.manage",
+        "sales_orders.read",
+        "sales_orders.create",
+        "sales_orders.update",
+        "sales_orders.confirm",
+        "invoices.read",
+        "invoices.create",
     },
     "warehouse_keeper": {
-        "products.read", "warehouses.read", "inventory.read", "inventory.adjust",
-        "inventory.transfer", "inventory.count", "inventory.low_stock.read",
-        "purchase_orders.read", "goods_receipts.read", "goods_receipts.create",
-        "sales_orders.read", "sales_orders.deliver",
+        "products.read",
+        "warehouses.read",
+        "inventory.read",
+        "inventory.adjust",
+        "inventory.transfer",
+        "inventory.count",
+        "inventory.low_stock.read",
+        "purchase_orders.read",
+        "goods_receipts.read",
+        "goods_receipts.create",
+        "sales_orders.read",
+        "sales_orders.deliver",
     },
     "accountant": {
-        "products.read", "warehouses.read", "accounts.read", "accounts.manage",
-        "payments.read", "payments.create",
-        "invoices.read", "invoices.cancel", "purchase_orders.read",
-        "journal_entries.read", "customer_statements.read", "supplier_statements.read",
-        "reports.profit.read", "reports.receivables.read",
+        "products.read",
+        "warehouses.read",
+        "accounts.read",
+        "accounts.manage",
+        "payments.read",
+        "payments.create",
+        "invoices.read",
+        "invoices.cancel",
+        "purchase_orders.read",
+        "journal_entries.read",
+        "customer_statements.read",
+        "supplier_statements.read",
+        "reports.profit.read",
+        "reports.receivables.read",
         "reports.inventory_valuation.read",
     },
     "manager": {
-        "products.read", "warehouses.read", "purchase_orders.read",
-        "purchase_orders.approve", "sales_orders.read",
-        "invoices.read", "inventory.read", "inventory.low_stock.read",
-        "inventory.count.approve", "reports.profit.read", "reports.top_products.read",
-        "reports.inventory_valuation.read", "reports.receivables.read",
+        "products.read",
+        "warehouses.read",
+        "purchase_orders.read",
+        "purchase_orders.approve",
+        "sales_orders.read",
+        "invoices.read",
+        "inventory.read",
+        "inventory.low_stock.read",
+        "inventory.count.approve",
+        "reports.profit.read",
+        "reports.top_products.read",
+        "reports.inventory_valuation.read",
+        "reports.receivables.read",
         "reports.monthly_sales.read",
     },
+}
+
+DEMO_USERS = {
+    "purchasing": ("Purchasing", "Officer", "purchasing_officer"),
+    "sales": ("Sales", "Officer", "sales_officer"),
+    "warehouse": ("Warehouse", "Keeper", "warehouse_keeper"),
+    "accountant": ("Finance", "Accountant", "accountant"),
+    "manager": ("Operations", "Manager", "manager"),
+}
+
+DEMO_PASSWORD = "Passw0rd!"
+
+# Intentionally below their minimum levels so development environments include
+# realistic Low Stock alerts.
+DEMO_LOW_STOCK = {
+    "PEN-PIL-G2-07-BLK": (Decimal("8.00"), Decimal("10.00")),
+    "PAP-DP-A4-80G": (Decimal("12.00"), Decimal("14.00")),
+    "CHR-ERG-MESH-BLK": (Decimal("1.00"), Decimal("2.00")),
 }
 
 CATEGORY_DATA = [
@@ -290,9 +349,7 @@ def seed_warehouses(db) -> int:
 
 def seed_inventory(db, *, admin_id: int) -> int:
     products = list(db.scalars(select(Product).where(Product.is_active.is_(True))).all())
-    warehouses = list(
-        db.scalars(select(Warehouse).where(Warehouse.is_active.is_(True))).all()
-    )
+    warehouses = list(db.scalars(select(Warehouse).where(Warehouse.is_active.is_(True))).all())
     created_count = 0
     for product in products:
         for warehouse in warehouses:
@@ -304,9 +361,14 @@ def seed_inventory(db, *, admin_id: int) -> int:
             )
             if existing is not None:
                 continue
-            quantity = Decimal(
-                (sum(ord(character) for character in product.sku) + warehouse.id * 13)
-                % 61
+            demo_quantities = DEMO_LOW_STOCK.get(product.sku)
+            warehouse_index = warehouses.index(warehouse)
+            quantity = (
+                demo_quantities[warehouse_index]
+                if demo_quantities and warehouse_index < len(demo_quantities)
+                else Decimal(
+                    (sum(ord(character) for character in product.sku) + warehouse.id * 13) % 61
+                )
             )
             db.add(
                 StockLevel(
@@ -369,6 +431,26 @@ def seed() -> None:
             db.add(admin)
         elif admin.email != "admin@example.com":
             admin.email = "admin@example.com"
+
+        for username, (first_name, last_name, role_name) in DEMO_USERS.items():
+            user = db.scalar(select(User).where(User.username == username))
+            if user is None:
+                user = User(
+                    username=username,
+                    first_name=first_name,
+                    last_name=last_name,
+                    email=f"{username}@example.com",
+                    hashed_password=hash_password(DEMO_PASSWORD),
+                )
+                db.add(user)
+            else:
+                user.first_name = first_name
+                user.last_name = last_name
+                user.email = f"{username}@example.com"
+                user.hashed_password = hash_password(DEMO_PASSWORD)
+                user.is_active = True
+            user.roles = [roles[role_name]]
+
         created_categories, created_products = seed_catalog(db)
         created_warehouses = seed_warehouses(db)
         db.flush()
@@ -379,7 +461,8 @@ def seed() -> None:
             f"Added {created_categories} categories, {created_products} products, "
             f"and {created_warehouses} warehouses. "
             f"Added {created_stock_levels} stock levels. "
-            "Admin login: admin / Passw0rd!"
+            "Demo logins use password Passw0rd!: admin, purchasing, sales, "
+            "warehouse, accountant, manager."
         )
 
 

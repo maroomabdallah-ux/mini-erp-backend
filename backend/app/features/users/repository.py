@@ -1,6 +1,7 @@
+from datetime import UTC, datetime
 from typing import cast
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from app.features.users.model import Permission, RefreshToken, Role, User
@@ -9,10 +10,7 @@ from app.features.users.model import Permission, RefreshToken, Role, User
 def get_all_users(
     db: Session, *, offset: int = 0, limit: int = 20, search: str | None = None
 ) -> list[User]:
-    statement = (
-        select(User)
-        .options(selectinload(User.roles).selectinload(Role.permissions))
-    )
+    statement = select(User).options(selectinload(User.roles).selectinload(Role.permissions))
     if search:
         term = f"%{search.strip().lower()}%"
         statement = statement.where(
@@ -102,11 +100,7 @@ def get_all_roles(db: Session) -> list[Role]:
 def get_role_by_id(db: Session, role_id: int) -> Role | None:
     return cast(
         Role | None,
-        db.scalar(
-            select(Role)
-            .options(selectinload(Role.permissions))
-            .where(Role.id == role_id)
-        ),
+        db.scalar(select(Role).options(selectinload(Role.permissions)).where(Role.id == role_id)),
     )
 
 
@@ -117,9 +111,7 @@ def get_role_by_name(db: Session, name: str) -> Role | None:
 def get_permissions_by_ids(db: Session, permission_ids: list[int]) -> list[Permission]:
     if not permission_ids:
         return []
-    return list(
-        db.scalars(select(Permission).where(Permission.id.in_(permission_ids))).all()
-    )
+    return list(db.scalars(select(Permission).where(Permission.id.in_(permission_ids))).all())
 
 
 def get_all_permissions(db: Session) -> list[Permission]:
@@ -139,4 +131,12 @@ def get_refresh_token(db: Session, token_hash: str) -> RefreshToken | None:
             .options(selectinload(RefreshToken.user))
             .where(RefreshToken.token_hash == token_hash)
         ),
+    )
+
+
+def revoke_user_refresh_tokens(db: Session, user_id: int) -> None:
+    db.execute(
+        update(RefreshToken)
+        .where(RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None))
+        .values(revoked_at=datetime.now(UTC))
     )
