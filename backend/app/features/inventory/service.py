@@ -25,7 +25,7 @@ from app.features.inventory.schemas import (
 from app.features.warehouses import repository as warehouse_repository
 
 
-def _money(value: Decimal) -> str:
+def _money(value: Decimal | int) -> str:
     return f"{value:.2f}"
 
 

@@ -2,7 +2,7 @@
 
 Backend service built with FastAPI, SQLAlchemy 2.0, PostgreSQL, Alembic, JWT authentication, and role-based access control (RBAC).
 
-The currently completed scope includes project setup, authentication, users, roles, permissions, refresh-token revocation, audit logging, categories, products, warehouses, inventory levels, inventory movements, manual stock adjustments, warehouse stock transfers, and low-stock alerts.
+The completed scope includes authentication, users, roles, permissions, audit logging, products and categories, suppliers, warehouses, inventory operations, physical counts, purchase orders, goods receipts, customers, and sales quotations.
 
 ## 1. Run the Project
 
@@ -558,7 +558,43 @@ Example supplier body:
 
 Supplier email addresses are validated and normalized to lowercase. Search covers name, email, phone, and credit terms. Deletion is implemented as soft deactivation, and all create, update, and deactivate operations are written to the audit log.
 
-## 22. Inventory Levels and Movements
+## 22. Customers
+
+Customer endpoints:
+
+```text
+GET    /customers?page=1&size=20&search=&is_active=&city=
+GET    /customers/cities
+GET    /customers/{customer_id}
+POST   /customers
+PUT    /customers/{customer_id}
+DELETE /customers/{customer_id}
+```
+
+Customer records receive an automatic `CUS-00001`-style code and store the customer name, contact person, email, phone, address, city, tax number, and approved credit limit. Search covers identity and contact fields, deletion is a soft deactivation, and every write is audited.
+
+Sales officers manage customers. Managers and accountants have read access, while administrators retain full access.
+
+## 23. Sales Quotations
+
+Quotation endpoints:
+
+```text
+GET  /quotations?page=1&size=20&search=&status=&customer_id=
+GET  /quotations/{quotation_id}
+POST /quotations
+PUT  /quotations/{quotation_id}
+POST /quotations/{quotation_id}/send
+POST /quotations/{quotation_id}/accept
+POST /quotations/{quotation_id}/reject
+POST /quotations/{quotation_id}/expire
+```
+
+Sales officers build draft quotations from active customers and products. The backend calculates subtotal, quotation-level discount, tax, and final total. Sent quotations can be recorded as accepted, rejected with a reason, or expired. Only drafts can be edited, every state transition is audited, and quantities are whole units.
+
+Accepted quotations are ready for conversion when the Sales Orders module is introduced; no stock is reserved or deducted by a quotation.
+
+## 24. Inventory Levels and Movements
 
 Inventory endpoints:
 
@@ -606,7 +642,62 @@ Reading stock and movements requires `inventory.read`; manual adjustments requir
 
 All inventory quantities and minimum-stock thresholds are whole units. Fractional quantities are rejected with `422 Unprocessable Entity`; prices and monetary values retain two decimal places.
 
-## 23. Important HTTP Status Codes
+## 25. Purchase Orders and Goods Receipts
+
+Purchase workflow endpoints:
+
+```text
+GET  /purchase-orders?page=1&size=20&search=&status=&supplier_id=&created_by=
+GET  /purchase-orders/{purchase_order_id}
+POST /purchase-orders
+PUT  /purchase-orders/{purchase_order_id}
+POST /purchase-orders/{purchase_order_id}/submit
+POST /purchase-orders/{purchase_order_id}/approve
+POST /purchase-orders/{purchase_order_id}/reject
+POST /purchase-orders/{purchase_order_id}/cancel
+POST /purchase-orders/{purchase_order_id}/receive
+GET  /goods-receipts?page=1&size=20
+GET  /goods-receipts/{receipt_id}
+```
+
+Create a draft purchase order with an active supplier and at least one active product:
+
+```json
+{
+  "supplier_id": 1,
+  "notes": "Monthly replenishment",
+  "items": [
+    {"product_id": 1, "quantity": 10, "unit_cost": "4.50"},
+    {"product_id": 2, "quantity": 5, "unit_cost": "12.00"}
+  ]
+}
+```
+
+Quantities are whole positive units, monetary values use two decimal places, and each product may appear only once per order. The server calculates every line total and the order total.
+
+The controlled workflow is:
+
+```text
+draft -> pending_approval -> approved -> received
+                          -> rejected
+draft / pending_approval / approved -> cancelled
+```
+
+Purchasing officers create, edit, submit, and cancel orders. Managers approve or reject pending orders, and the creator cannot approve their own order. Warehouse keepers receive approved orders into one active warehouse. Receiving creates a unique `GRN-...` goods receipt, adds all ordered quantities to stock, records an `in` movement for every item, and marks the order as received in one transaction. An order cannot be received twice.
+
+Reject and cancel requests require a body such as:
+
+```json
+{"reason": "Budget is not approved"}
+```
+
+Receiving requires:
+
+```json
+{"warehouse_id": 1, "notes": "Delivery verified"}
+```
+
+## 26. Important HTTP Status Codes
 
 | Status | Meaning |
 |---|---|
@@ -626,7 +717,7 @@ Standard error envelope:
 }
 ```
 
-## 24. Recommended Test Flow
+## 27. Recommended Test Flow
 
 Test the complete feature in this order:
 
@@ -652,11 +743,17 @@ POST /inventory/counts
 POST /inventory/counts/{count_id}/approve
 GET /inventory/movements
 GET /inventory/low-stock
+POST /purchase-orders
+PUT /purchase-orders/{purchase_order_id}
+POST /purchase-orders/{purchase_order_id}/submit
+POST /purchase-orders/{purchase_order_id}/approve
+POST /purchase-orders/{purchase_order_id}/receive
+GET /goods-receipts
 POST /auth/refresh
 POST /auth/logout
 ```
 
-## 25. Quality Checks
+## 28. Quality Checks
 
 Run tests:
 

@@ -114,6 +114,7 @@ ROLE_PERMISSIONS = {
     "accountant": {
         "products.read",
         "warehouses.read",
+        "customers.read",
         "accounts.read",
         "accounts.manage",
         "payments.read",
@@ -131,6 +132,8 @@ ROLE_PERMISSIONS = {
     "manager": {
         "products.read",
         "warehouses.read",
+        "customers.read",
+        "quotations.read",
         "purchase_orders.read",
         "purchase_orders.approve",
         "sales_orders.read",

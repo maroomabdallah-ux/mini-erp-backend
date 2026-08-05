@@ -2,7 +2,7 @@
 
 Backend service built with FastAPI, SQLAlchemy 2.0, PostgreSQL, Alembic, JWT authentication, and role-based access control (RBAC).
 
-The currently completed scope includes project setup, users, authentication, roles, permissions, refresh-token revocation, audit logging, categories, and products.
+The completed scope includes authentication, users, roles, permissions, audit logging, products and categories, suppliers, warehouses, inventory operations, physical counts, purchase orders, goods receipts, customers, and sales quotations.
 
 ## 1. Run the Project
 
@@ -10,12 +10,6 @@ From the project root directory, start PostgreSQL and the API:
 
 ```bash
 docker compose up -d postgres api
-
-
-cd /Users/apple/miniERPsystem
-source .venv/bin/activate
-cd backend
-uvicorn app.main:app --reload
 ```
 
 Apply all database migrations:
@@ -400,13 +394,23 @@ Do not assume role or permission IDs are the same in every database. Read the cu
 
 ## 16. Current Permissions
 
-Permissions implemented in Phase 1:
+Permissions used by the currently implemented modules:
 
 | Code | Purpose |
 |---|---|
 | `users.manage` | List, create, update, deactivate users, and reset passwords |
 | `roles.manage` | List and create roles, and assign permissions |
 | `audit.read` | Read audit logs |
+| `products.read` | View products and categories |
+| `products.manage` | Create, update, deactivate, and import products and categories |
+| `warehouses.read` | View warehouses |
+| `warehouses.manage` | Create, update, and deactivate warehouses |
+| `inventory.read` | View stock levels and movement history |
+| `inventory.adjust` | Record manual stock adjustments |
+| `inventory.transfer` | Transfer stock between warehouses |
+| `inventory.count` | Record physical stock counts |
+| `inventory.count.approve` | Approve physical counts and apply variances |
+| `inventory.low_stock.read` | View low-stock alerts |
 
 New permissions should be added when their corresponding features and protected endpoints are implemented.
 
@@ -501,7 +505,199 @@ sku,name,barcode,category_id,cost_price,sale_price,min_stock_level
 
 The import response contains the number of created rows and field-level errors for every rejected row.
 
-## 20. Important HTTP Status Codes
+## 20. Warehouses
+
+Warehouse endpoints:
+
+```text
+GET    /warehouses?page=1&size=20&search=&is_active=
+GET    /warehouses/{warehouse_id}
+POST   /warehouses
+PUT    /warehouses/{warehouse_id}
+DELETE /warehouses/{warehouse_id}
+```
+
+Reading requires `warehouses.read`; writing requires `warehouses.manage`.
+
+Example warehouse body:
+
+```json
+{
+  "code": "WH-AMM-MAIN",
+  "name": "Amman Main Warehouse",
+  "address": "Sahab Industrial Area, Amman"
+}
+```
+
+Warehouse codes are normalized to uppercase and must be unique. Deletion is implemented as soft deactivation, and a warehouse holding stock cannot be deactivated.
+
+## 21. Suppliers
+
+Supplier endpoints:
+
+```text
+GET    /suppliers?page=1&size=20&search=&is_active=
+GET    /suppliers/{supplier_id}
+POST   /suppliers
+PUT    /suppliers/{supplier_id}
+DELETE /suppliers/{supplier_id}
+```
+
+Reading requires `suppliers.read`; writing requires `suppliers.manage`.
+
+Example supplier body:
+
+```json
+{
+  "name": "Jordan Office Solutions",
+  "email": "purchasing@jos.example",
+  "phone": "+962 6 555 0100",
+  "credit_terms": "Net 30"
+}
+```
+
+Supplier email addresses are validated and normalized to lowercase. Search covers name, email, phone, and credit terms. Deletion is implemented as soft deactivation, and all create, update, and deactivate operations are written to the audit log.
+
+## 22. Customers
+
+Customer endpoints:
+
+```text
+GET    /customers?page=1&size=20&search=&is_active=&city=
+GET    /customers/cities
+GET    /customers/{customer_id}
+POST   /customers
+PUT    /customers/{customer_id}
+DELETE /customers/{customer_id}
+```
+
+Customer records receive an automatic `CUS-00001`-style code and store the customer name, contact person, email, phone, address, city, tax number, and approved credit limit. Search covers identity and contact fields, deletion is a soft deactivation, and every write is audited.
+
+Sales officers manage customers. Managers and accountants have read access, while administrators retain full access.
+
+## 23. Sales Quotations
+
+Quotation endpoints:
+
+```text
+GET  /quotations?page=1&size=20&search=&status=&customer_id=
+GET  /quotations/{quotation_id}
+POST /quotations
+PUT  /quotations/{quotation_id}
+POST /quotations/{quotation_id}/send
+POST /quotations/{quotation_id}/accept
+POST /quotations/{quotation_id}/reject
+POST /quotations/{quotation_id}/expire
+```
+
+Sales officers build draft quotations from active customers and products. The backend calculates subtotal, quotation-level discount, tax, and final total. Sent quotations can be recorded as accepted, rejected with a reason, or expired. Only drafts can be edited, every state transition is audited, and quantities are whole units.
+
+Accepted quotations are ready for conversion when the Sales Orders module is introduced; no stock is reserved or deducted by a quotation.
+
+## 24. Inventory Levels and Movements
+
+Inventory endpoints:
+
+```text
+GET  /inventory/stock?product_id=&warehouse_id=&search=&page=&size=
+GET  /inventory/movements?product_id=&warehouse_id=&movement_type=&date_from=&date_to=
+POST /inventory/adjustments
+POST /inventory/transfers
+GET  /inventory/counts?status=&page=&size=
+POST /inventory/counts
+POST /inventory/counts/{count_id}/approve
+GET  /inventory/low-stock
+```
+
+Manual adjustment body:
+
+```json
+{
+  "product_id": 1,
+  "warehouse_id": 1,
+  "quantity_change": 5,
+  "reason": "Physical count correction"
+}
+```
+
+Positive changes add stock and negative changes remove stock. Every change locks the affected inventory row, updates the current level, records an immutable movement, and writes an audit entry in one database transaction. Any operation that would create negative stock is rejected with `409 Conflict`.
+
+Transfer body:
+
+```json
+{
+  "product_id": 1,
+  "source_warehouse_id": 1,
+  "destination_warehouse_id": 2,
+  "quantity": 6,
+  "reason": "Replenish secondary location"
+}
+```
+
+A transfer validates two different active warehouses and sufficient source stock, locks the affected inventory rows, and updates both quantities atomically. It records linked `out` and `in` movements under one generated `TRF-...` reference and writes one audit entry.
+
+Physical counts use a two-step workflow: `inventory.count` records the system snapshot and actual counted quantity as pending; `inventory.count.approve` validates that stock has not changed, applies the variance, records a linked movement, and approves the count. Stale counts are rejected instead of overwriting newer inventory activity.
+
+Reading stock and movements requires `inventory.read`; manual adjustments require `inventory.adjust`; transfers require `inventory.transfer`; physical-count entry requires `inventory.count`; approval requires `inventory.count.approve`; low-stock alerts require `inventory.low_stock.read`.
+
+All inventory quantities and minimum-stock thresholds are whole units. Fractional quantities are rejected with `422 Unprocessable Entity`; prices and monetary values retain two decimal places.
+
+## 25. Purchase Orders and Goods Receipts
+
+Purchase workflow endpoints:
+
+```text
+GET  /purchase-orders?page=1&size=20&search=&status=&supplier_id=&created_by=
+GET  /purchase-orders/{purchase_order_id}
+POST /purchase-orders
+PUT  /purchase-orders/{purchase_order_id}
+POST /purchase-orders/{purchase_order_id}/submit
+POST /purchase-orders/{purchase_order_id}/approve
+POST /purchase-orders/{purchase_order_id}/reject
+POST /purchase-orders/{purchase_order_id}/cancel
+POST /purchase-orders/{purchase_order_id}/receive
+GET  /goods-receipts?page=1&size=20
+GET  /goods-receipts/{receipt_id}
+```
+
+Create a draft purchase order with an active supplier and at least one active product:
+
+```json
+{
+  "supplier_id": 1,
+  "notes": "Monthly replenishment",
+  "items": [
+    {"product_id": 1, "quantity": 10, "unit_cost": "4.50"},
+    {"product_id": 2, "quantity": 5, "unit_cost": "12.00"}
+  ]
+}
+```
+
+Quantities are whole positive units, monetary values use two decimal places, and each product may appear only once per order. The server calculates every line total and the order total.
+
+The controlled workflow is:
+
+```text
+draft -> pending_approval -> approved -> received
+                          -> rejected
+draft / pending_approval / approved -> cancelled
+```
+
+Purchasing officers create, edit, submit, and cancel orders. Managers approve or reject pending orders, and the creator cannot approve their own order. Warehouse keepers receive approved orders into one active warehouse. Receiving creates a unique `GRN-...` goods receipt, adds all ordered quantities to stock, records an `in` movement for every item, and marks the order as received in one transaction. An order cannot be received twice.
+
+Reject and cancel requests require a body such as:
+
+```json
+{"reason": "Budget is not approved"}
+```
+
+Receiving requires:
+
+```json
+{"warehouse_id": 1, "notes": "Delivery verified"}
+```
+
+## 26. Important HTTP Status Codes
 
 | Status | Meaning |
 |---|---|
@@ -521,13 +717,15 @@ Standard error envelope:
 }
 ```
 
-## 21. Recommended Test Flow
+## 27. Recommended Test Flow
 
 Test the complete feature in this order:
 
 ```text
 POST /auth/login
 GET /auth/me
+PUT /auth/me
+POST /auth/change-password
 GET /roles
 POST /roles
 PUT /roles/{role_id}/permissions
@@ -535,11 +733,27 @@ POST /users
 PUT /users/{user_id}
 GET /users/{user_id}
 GET /audit-logs
+GET /warehouses
+POST /warehouses
+GET /inventory/stock
+POST /inventory/adjustments
+POST /inventory/transfers
+GET /inventory/counts
+POST /inventory/counts
+POST /inventory/counts/{count_id}/approve
+GET /inventory/movements
+GET /inventory/low-stock
+POST /purchase-orders
+PUT /purchase-orders/{purchase_order_id}
+POST /purchase-orders/{purchase_order_id}/submit
+POST /purchase-orders/{purchase_order_id}/approve
+POST /purchase-orders/{purchase_order_id}/receive
+GET /goods-receipts
 POST /auth/refresh
 POST /auth/logout
 ```
 
-## 22. Quality Checks
+## 28. Quality Checks
 
 Run tests:
 
@@ -553,10 +767,16 @@ Run Ruff:
 docker compose run --rm api ruff check app tests
 ```
 
-Run mypy on the implemented modules:
+Run mypy:
 
 ```bash
-docker compose run --rm api mypy app/core app/db app/features/users app/features/audit app/main.py app/routers.py app/seed.py
+docker compose run --rm api mypy app
+```
+
+Check for migration drift:
+
+```bash
+docker compose run --rm api alembic check
 ```
 
 Every database schema change must be delivered through an Alembic migration. Apply migrations to a fresh database before considering a feature complete.
