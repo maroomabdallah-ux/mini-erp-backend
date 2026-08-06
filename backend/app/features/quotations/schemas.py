@@ -4,13 +4,16 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-QuotationStatus = Literal["draft", "sent", "accepted", "rejected", "expired"]
+QuotationStatus = Literal["draft", "sent", "accepted", "rejected", "expired", "converted"]
 
 
 class QuotationItemInput(BaseModel):
     product_id: int = Field(gt=0)
     quantity: int = Field(gt=0)
     unit_price: Decimal = Field(ge=0, max_digits=12, decimal_places=2)
+    discount_percent: Decimal = Field(
+        default=Decimal("0.00"), ge=0, le=100, max_digits=5, decimal_places=2
+    )
 
 
 class QuotationCreate(BaseModel):
@@ -73,6 +76,7 @@ class QuotationItemResponse(BaseModel):
     product_id: int
     quantity: int
     unit_price: Decimal
+    discount_percent: Decimal
     line_total: Decimal
     product: ProductSummary
     model_config = ConfigDict(from_attributes=True)
@@ -96,6 +100,7 @@ class QuotationResponse(BaseModel):
     accepted_at: datetime | None
     rejected_at: datetime | None
     rejection_reason: str | None
+    converted_at: datetime | None
     created_at: datetime
     updated_at: datetime
     customer: CustomerSummary

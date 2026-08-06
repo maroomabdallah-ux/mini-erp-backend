@@ -26,9 +26,7 @@ def list_suppliers(
     is_active: bool | None = None,
     actor: User = Depends(require_permission("suppliers.read")),
 ):
-    return service.list_suppliers(
-        db, page=page, size=size, search=search, is_active=is_active
-    )
+    return service.list_suppliers(db, page=page, size=size, search=search, is_active=is_active)
 
 
 @router.get("/{supplier_id}", response_model=SupplierResponse)
@@ -47,9 +45,7 @@ def create_supplier(
     db: DatabaseSession,
     actor: User = Depends(require_permission("suppliers.manage")),
 ):
-    return service.create_supplier(
-        db, data, actor_id=actor.id, ip_address=_ip(request)
-    )
+    return service.create_supplier(db, data, actor_id=actor.id, ip_address=_ip(request))
 
 
 @router.put("/{supplier_id}", response_model=SupplierResponse)
@@ -72,6 +68,4 @@ def deactivate_supplier(
     db: DatabaseSession,
     actor: User = Depends(require_permission("suppliers.manage")),
 ):
-    return service.deactivate_supplier(
-        db, supplier_id, actor_id=actor.id, ip_address=_ip(request)
-    )
+    return service.deactivate_supplier(db, supplier_id, actor_id=actor.id, ip_address=_ip(request))

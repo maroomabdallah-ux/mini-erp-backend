@@ -26,9 +26,8 @@ def list_quotations(
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
     search: str | None = Query(default=None, max_length=255),
-    status_filter: Literal["draft", "sent", "accepted", "rejected", "expired"] | None = Query(
-        default=None, alias="status"
-    ),
+    status_filter: Literal["draft", "sent", "accepted", "rejected", "expired", "converted"]
+    | None = Query(default=None, alias="status"),
     customer_id: int | None = Query(default=None, gt=0),
     actor: User = Depends(require_permission("quotations.read")),
 ):

@@ -102,9 +102,7 @@ def create_category(
     return _category_or_error(db, category.id)
 
 
-def _ensure_no_category_cycle(
-    db: Session, category_id: int, parent: Category | None
-) -> None:
+def _ensure_no_category_cycle(db: Session, category_id: int, parent: Category | None) -> None:
     current = parent
     while current is not None:
         if current.id == category_id:
@@ -367,14 +365,11 @@ def import_products(
                 values.pop(optional, None)
         try:
             data = ProductCreate.model_validate(values)
-            create_product(
-                db, data, actor_id=actor_id, ip_address=ip_address
-            )
+            create_product(db, data, actor_id=actor_id, ip_address=ip_address)
             created_count += 1
         except ValidationError as exc:
             field_errors = {
-                ".".join(str(part) for part in error["loc"]): error["msg"]
-                for error in exc.errors()
+                ".".join(str(part) for part in error["loc"]): error["msg"] for error in exc.errors()
             }
             errors.append(ProductImportError(row=row_number, field_errors=field_errors))
         except AppError as exc:

@@ -48,16 +48,25 @@ def _replace(quotation: Quotation, data: QuotationCreate | QuotationUpdate) -> N
             product_id=item.product_id,
             quantity=item.quantity,
             unit_price=item.unit_price,
-            line_total=(item.unit_price * item.quantity).quantize(CENT, rounding=ROUND_HALF_UP),
+            discount_percent=item.discount_percent,
+            line_total=(
+                item.unit_price * item.quantity * (Decimal("100") - item.discount_percent) / 100
+            ).quantize(CENT, rounding=ROUND_HALF_UP),
         )
         for item in data.items
     ]
-    quotation.subtotal = sum((item.line_total for item in quotation.items), Decimal("0.00"))
+    quotation.subtotal = sum(
+        (item.unit_price * item.quantity for item in quotation.items), Decimal("0.00")
+    )
     quotation.discount_percent = data.discount_percent
     quotation.tax_percent = data.tax_percent
-    quotation.discount_amount = (quotation.subtotal * data.discount_percent / 100).quantize(
-        CENT, rounding=ROUND_HALF_UP
+    line_discounts = quotation.subtotal - sum(
+        (item.line_total for item in quotation.items), Decimal("0.00")
     )
+    quotation_discount = (
+        (quotation.subtotal - line_discounts) * data.discount_percent / 100
+    ).quantize(CENT, rounding=ROUND_HALF_UP)
+    quotation.discount_amount = line_discounts + quotation_discount
     taxable = quotation.subtotal - quotation.discount_amount
     quotation.tax_amount = (taxable * data.tax_percent / 100).quantize(CENT, rounding=ROUND_HALF_UP)
     quotation.total_amount = taxable + quotation.tax_amount

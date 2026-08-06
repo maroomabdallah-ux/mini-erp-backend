@@ -58,9 +58,7 @@ def list_warehouses(
         ),
         "page": page,
         "size": size,
-        "total": repository.count_warehouses(
-            db, search=search, is_active=is_active
-        ),
+        "total": repository.count_warehouses(db, search=search, is_active=is_active),
     }
 
 
@@ -135,13 +133,9 @@ def deactivate_warehouse(
 ) -> Warehouse:
     warehouse = _warehouse_or_error(db, warehouse_id)
     if not warehouse.is_active:
-        raise WarehouseDeactivationError(
-            f"Warehouse with id {warehouse_id} is already inactive."
-        )
+        raise WarehouseDeactivationError(f"Warehouse with id {warehouse_id} is already inactive.")
     if repository.has_stock(db, warehouse_id):
-        raise WarehouseDeactivationError(
-            "A warehouse holding stock cannot be deactivated."
-        )
+        raise WarehouseDeactivationError("A warehouse holding stock cannot be deactivated.")
     warehouse.is_active = False
     add_audit_log(
         db,

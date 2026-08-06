@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     CheckConstraint,
@@ -19,13 +20,16 @@ from app.db.base import Base
 from app.features.customers.models import Customer
 from app.features.products.models import Product
 
+if TYPE_CHECKING:
+    from app.features.sales.models import SalesOrder
+
 
 class Quotation(Base):
     __tablename__ = "quotations"
     __table_args__ = (
         UniqueConstraint("number", name="uq_quotations_number"),
         CheckConstraint(
-            "status IN ('draft','sent','accepted','rejected','expired')",
+            "status IN ('draft','sent','accepted','rejected','expired','converted')",
             name="ck_quotations_status",
         ),
         CheckConstraint(
@@ -70,6 +74,7 @@ class Quotation(Base):
     accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     rejection_reason: Mapped[str | None] = mapped_column(String(500))
+    converted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -77,6 +82,9 @@ class Quotation(Base):
     customer: Mapped[Customer] = relationship()
     items: Mapped[list["QuotationItem"]] = relationship(
         back_populates="quotation", cascade="all, delete-orphan", order_by="QuotationItem.id"
+    )
+    sales_order: Mapped["SalesOrder | None"] = relationship(
+        back_populates="quotation", uselist=False
     )
 
 
@@ -86,6 +94,10 @@ class QuotationItem(Base):
         UniqueConstraint("quotation_id", "product_id", name="uq_quotation_product"),
         CheckConstraint("quantity > 0", name="ck_quotation_items_quantity_positive"),
         CheckConstraint("unit_price >= 0", name="ck_quotation_items_price_nonnegative"),
+        CheckConstraint(
+            "discount_percent >= 0 AND discount_percent <= 100",
+            name="ck_quotation_items_discount_percent",
+        ),
         CheckConstraint("line_total >= 0", name="ck_quotation_items_total_nonnegative"),
     )
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -97,6 +109,9 @@ class QuotationItem(Base):
     )
     quantity: Mapped[int] = mapped_column(Integer)
     unit_price: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    discount_percent: Mapped[Decimal] = mapped_column(
+        Numeric(5, 2), default=Decimal("0.00"), server_default="0"
+    )
     line_total: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     quotation: Mapped[Quotation] = relationship(back_populates="items")
     product: Mapped[Product] = relationship()

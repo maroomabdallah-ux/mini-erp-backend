@@ -34,7 +34,5 @@ def get_audit_logs(
         statement = statement.where(AuditLog.created_at >= date_from)
     if date_to is not None:
         statement = statement.where(AuditLog.created_at <= date_to)
-    statement = statement.order_by(AuditLog.created_at.desc()).offset(
-        (page - 1) * size
-    ).limit(size)
+    statement = statement.order_by(AuditLog.created_at.desc()).offset((page - 1) * size).limit(size)
     return list(db.scalars(statement).all())

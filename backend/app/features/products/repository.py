@@ -48,9 +48,7 @@ def get_product(db: Session, product_id: int) -> Product | None:
     return cast(
         Product | None,
         db.scalar(
-            select(Product)
-            .options(selectinload(Product.category))
-            .where(Product.id == product_id)
+            select(Product).options(selectinload(Product.category)).where(Product.id == product_id)
         ),
     )
 
@@ -60,9 +58,7 @@ def get_product_by_sku(db: Session, sku: str) -> Product | None:
 
 
 def get_product_by_barcode(db: Session, barcode: str) -> Product | None:
-    return cast(
-        Product | None, db.scalar(select(Product).where(Product.barcode == barcode))
-    )
+    return cast(Product | None, db.scalar(select(Product).where(Product.barcode == barcode)))
 
 
 def _product_filters(statement, *, search, category_id, is_active):
@@ -97,9 +93,7 @@ def list_products(
         category_id=category_id,
         is_active=is_active,
     )
-    return list(
-        db.scalars(statement.order_by(Product.name).offset(offset).limit(limit)).all()
-    )
+    return list(db.scalars(statement.order_by(Product.name).offset(offset).limit(limit)).all())
 
 
 def count_products(

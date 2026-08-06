@@ -45,4 +45,3 @@ def health_check():
         "status": "ok",
         "application": settings.app_name,
     }
-

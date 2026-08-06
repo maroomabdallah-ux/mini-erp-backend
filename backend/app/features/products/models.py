@@ -27,9 +27,7 @@ class Category(Base):
         ForeignKey("categories.id", ondelete="RESTRICT"), index=True
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
@@ -48,9 +46,7 @@ class Product(Base):
         UniqueConstraint("barcode", name="uq_products_barcode"),
         CheckConstraint("cost_price >= 0", name="ck_products_cost_price_nonnegative"),
         CheckConstraint("sale_price >= 0", name="ck_products_sale_price_nonnegative"),
-        CheckConstraint(
-            "min_stock_level >= 0", name="ck_products_min_stock_level_nonnegative"
-        ),
+        CheckConstraint("min_stock_level >= 0", name="ck_products_min_stock_level_nonnegative"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -64,9 +60,7 @@ class Product(Base):
     sale_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"))
     min_stock_level: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

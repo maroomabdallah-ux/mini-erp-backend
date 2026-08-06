@@ -45,9 +45,7 @@ def list_suppliers(
         ),
         "page": page,
         "size": size,
-        "total": repository.count_suppliers(
-            db, search=search, is_active=is_active
-        ),
+        "total": repository.count_suppliers(db, search=search, is_active=is_active),
     }
 
 
@@ -113,9 +111,7 @@ def deactivate_supplier(
 ) -> Supplier:
     supplier = _supplier_or_error(db, supplier_id)
     if not supplier.is_active:
-        raise SupplierDeactivationError(
-            f"Supplier with id {supplier_id} is already inactive."
-        )
+        raise SupplierDeactivationError(f"Supplier with id {supplier_id} is already inactive.")
     supplier.is_active = False
     add_audit_log(
         db,

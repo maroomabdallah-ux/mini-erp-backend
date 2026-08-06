@@ -8,9 +8,7 @@ from pydantic import BaseModel, Field
 class ErrorResponse(BaseModel):
     detail: str
     code: str
-    field_errors: dict[str, Any] = Field(
-        default_factory=dict
-    )
+    field_errors: dict[str, Any] = Field(default_factory=dict)
 
 
 class MessageResponse(BaseModel):

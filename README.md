@@ -780,3 +780,31 @@ docker compose run --rm api alembic check
 ```
 
 Every database schema change must be delivered through an Alembic migration. Apply migrations to a fresh database before considering a feature complete.
+
+## 29. Sales, Billing, and Accounting
+
+The sales cycle now supports both quotation conversion and direct draft sales orders. Confirmation selects a warehouse, checks every stock line, and applies the configurable customer credit policy (`block` or `warn`). Delivery rechecks and deducts stock from the confirmed warehouse.
+
+Issued invoices are immutable. Cancelling an unpaid issued invoice creates a linked credit note and a reversing journal entry. Customer payments and reversals update invoice balances without creating payments during sales-order confirmation.
+
+Accounting endpoints:
+
+```text
+GET/POST/PUT/DELETE /accounts
+GET                  /accounting/dashboard
+GET/POST             /journal-entries
+GET                  /journal-entries/{id}
+GET/POST             /supplier-payments
+POST                 /supplier-payments/{id}/reverse
+GET                  /supplier-outstanding
+GET                  /accounting/customer-statement/{id}?from=&to=
+GET                  /accounting/supplier-statement/{id}?from=&to=
+GET                  /invoices/{id}/accounting-timeline
+GET/PUT              /system-settings/sales
+```
+
+Journal entries are generated automatically for invoice issue, credit-note reversal, goods receipt, customer payment/reversal, and supplier payment/reversal. Every entry is balanced and retains its source type and source record. Manual entries remain available for exceptional adjustments and are rejected unless total debits equal total credits.
+
+The protected system accounts are Cash, Bank, Accounts Receivable, Inventory, Accounts Payable, Owner Equity, Sales Revenue, and Cost of Goods Sold. Their codes, types, and hierarchy cannot be changed, and they cannot be deactivated.
+
+Migration head: `r2q1p0o9n8m7`.

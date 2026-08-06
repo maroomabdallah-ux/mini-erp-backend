@@ -40,17 +40,11 @@ def list_warehouses(
     search: str | None,
     is_active: bool | None,
 ) -> list[Warehouse]:
-    statement = _warehouse_filters(
-        select(Warehouse), search=search, is_active=is_active
-    )
-    return list(
-        db.scalars(statement.order_by(Warehouse.name).offset(offset).limit(limit)).all()
-    )
+    statement = _warehouse_filters(select(Warehouse), search=search, is_active=is_active)
+    return list(db.scalars(statement.order_by(Warehouse.name).offset(offset).limit(limit)).all())
 
 
-def count_warehouses(
-    db: Session, *, search: str | None, is_active: bool | None
-) -> int:
+def count_warehouses(db: Session, *, search: str | None, is_active: bool | None) -> int:
     statement = _warehouse_filters(
         select(func.count(Warehouse.id)), search=search, is_active=is_active
     )

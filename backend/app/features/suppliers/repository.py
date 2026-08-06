@@ -34,17 +34,11 @@ def list_suppliers(
     search: str | None,
     is_active: bool | None,
 ) -> list[Supplier]:
-    statement = _supplier_filters(
-        select(Supplier), search=search, is_active=is_active
-    )
-    return list(
-        db.scalars(statement.order_by(Supplier.name).offset(offset).limit(limit)).all()
-    )
+    statement = _supplier_filters(select(Supplier), search=search, is_active=is_active)
+    return list(db.scalars(statement.order_by(Supplier.name).offset(offset).limit(limit)).all())
 
 
-def count_suppliers(
-    db: Session, *, search: str | None, is_active: bool | None
-) -> int:
+def count_suppliers(db: Session, *, search: str | None, is_active: bool | None) -> int:
     statement = _supplier_filters(
         select(func.count(Supplier.id)), search=search, is_active=is_active
     )

@@ -32,9 +32,7 @@ def get_purchase_order(db: Session, purchase_order_id: int) -> PurchaseOrder | N
     )
 
 
-def get_purchase_order_for_update(
-    db: Session, purchase_order_id: int
-) -> PurchaseOrder | None:
+def get_purchase_order_for_update(db: Session, purchase_order_id: int) -> PurchaseOrder | None:
     return cast(
         PurchaseOrder | None,
         db.scalar(

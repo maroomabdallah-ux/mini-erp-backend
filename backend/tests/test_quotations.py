@@ -73,11 +73,21 @@ def quote_payload(customer: dict, products: list[dict], suffix: str) -> dict:
         "customer_id": customer["id"],
         "valid_until": str(date.today() + timedelta(days=14)),
         "notes": f"Test quotation {suffix}",
-        "discount_percent": "10.00",
+        "discount_percent": "0.00",
         "tax_percent": "16.00",
         "items": [
-            {"product_id": products[0]["id"], "quantity": 2, "unit_price": "100.00"},
-            {"product_id": products[1]["id"], "quantity": 1, "unit_price": "50.00"},
+            {
+                "product_id": products[0]["id"],
+                "quantity": 2,
+                "unit_price": "100.00",
+                "discount_percent": "10.00",
+            },
+            {
+                "product_id": products[1]["id"],
+                "quantity": 1,
+                "unit_price": "50.00",
+                "discount_percent": "0.00",
+            },
         ],
     }
 
@@ -93,9 +103,10 @@ def test_quotation_complete_lifecycle_and_totals() -> None:
     quote = created.json()
     assert quote["status"] == "draft"
     assert quote["subtotal"] == "250.00"
-    assert quote["discount_amount"] == "25.00"
-    assert quote["tax_amount"] == "36.00"
-    assert quote["total_amount"] == "261.00"
+    assert quote["items"][0]["discount_percent"] == "10.00"
+    assert quote["discount_amount"] == "20.00"
+    assert quote["tax_amount"] == "36.80"
+    assert quote["total_amount"] == "266.80"
 
     listed = client.get(f"/quotations?search={suffix}&status=draft", headers=sales)
     assert listed.status_code == 200

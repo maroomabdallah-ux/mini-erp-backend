@@ -25,19 +25,20 @@ def verify_password(
     plain_password: str,
     hashed_password: str,
 ) -> bool:
-    return cast(bool, password_context.verify(
-        plain_password,
-        hashed_password,
-    ))
+    return cast(
+        bool,
+        password_context.verify(
+            plain_password,
+            hashed_password,
+        ),
+    )
 
 
 def create_access_token(
     subject: str | int,
     additional_claims: dict[str, Any] | None = None,
 ) -> str:
-    expire = datetime.now(UTC) + timedelta(
-        minutes=settings.jwt_access_minutes
-    )
+    expire = datetime.now(UTC) + timedelta(minutes=settings.jwt_access_minutes)
 
     payload: dict[str, Any] = {
         "sub": str(subject),
@@ -49,20 +50,21 @@ def create_access_token(
     if additional_claims:
         payload.update(additional_claims)
 
-    return cast(str, jwt.encode(
-        payload,
-        settings.jwt_secret,
-        algorithm=settings.jwt_algorithm,
-    ))
+    return cast(
+        str,
+        jwt.encode(
+            payload,
+            settings.jwt_secret,
+            algorithm=settings.jwt_algorithm,
+        ),
+    )
 
 
 def create_refresh_token(
     subject: str | int,
     token_id: str | None = None,
 ) -> tuple[str, str, datetime]:
-    expire = datetime.now(UTC) + timedelta(
-        days=settings.jwt_refresh_days
-    )
+    expire = datetime.now(UTC) + timedelta(days=settings.jwt_refresh_days)
 
     token_id = token_id or secrets.token_urlsafe(32)
 
@@ -88,11 +90,14 @@ def hash_token_id(token_id: str) -> str:
 
 def decode_token(token: str) -> dict[str, Any]:
     try:
-        return cast(dict[str, Any], jwt.decode(
-            token,
-            settings.jwt_secret,
-            algorithms=[settings.jwt_algorithm],
-        ))
+        return cast(
+            dict[str, Any],
+            jwt.decode(
+                token,
+                settings.jwt_secret,
+                algorithms=[settings.jwt_algorithm],
+            ),
+        )
 
     except JWTError as exc:
         raise ValueError("Invalid or expired token.") from exc

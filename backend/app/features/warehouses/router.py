@@ -26,9 +26,7 @@ def list_warehouses(
     is_active: bool | None = None,
     actor: User = Depends(require_permission("warehouses.read")),
 ):
-    return service.list_warehouses(
-        db, page=page, size=size, search=search, is_active=is_active
-    )
+    return service.list_warehouses(db, page=page, size=size, search=search, is_active=is_active)
 
 
 @router.get("/{warehouse_id}", response_model=WarehouseResponse)
@@ -47,9 +45,7 @@ def create_warehouse(
     db: DatabaseSession,
     actor: User = Depends(require_permission("warehouses.manage")),
 ):
-    return service.create_warehouse(
-        db, data, actor_id=actor.id, ip_address=_ip(request)
-    )
+    return service.create_warehouse(db, data, actor_id=actor.id, ip_address=_ip(request))
 
 
 @router.put("/{warehouse_id}", response_model=WarehouseResponse)

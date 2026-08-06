@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import uuid4
 
@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ConflictError
+from app.features.accounting.service import post_entry
 from app.features.audit.service import add_audit_log
 from app.features.inventory import repository as inventory_repository
 from app.features.inventory.models import StockLevel, StockMovement
@@ -94,9 +95,7 @@ def _replace_items(order: PurchaseOrder, data: PurchaseOrderCreate | PurchaseOrd
         )
         for item in data.items
     ]
-    order.total_amount = sum(
-        (item.line_total for item in order.items), start=Decimal("0.00")
-    )
+    order.total_amount = sum((item.line_total for item in order.items), start=Decimal("0.00"))
 
 
 def _snapshot(order: PurchaseOrder) -> dict:
@@ -372,13 +371,9 @@ def receive_purchase_order(
             raise PurchaseOrderEntityError(
                 f"Product with id {item.product_id} is unavailable for receiving."
             )
-        stock = inventory_repository.get_stock_level_for_update(
-            db, item.product_id, warehouse.id
-        )
+        stock = inventory_repository.get_stock_level_for_update(db, item.product_id, warehouse.id)
         if stock is None:
-            stock = StockLevel(
-                product_id=item.product_id, warehouse_id=warehouse.id, quantity=0
-            )
+            stock = StockLevel(product_id=item.product_id, warehouse_id=warehouse.id, quantity=0)
             db.add(stock)
             db.flush()
         stock.quantity += item.quantity
@@ -394,11 +389,21 @@ def receive_purchase_order(
                 created_by=actor_id,
             )
         )
-        receipt.items.append(
-            GoodsReceiptItem(product_id=item.product_id, quantity=item.quantity)
-        )
+        receipt.items.append(GoodsReceiptItem(product_id=item.product_id, quantity=item.quantity))
 
     order.status = "received"
+    post_entry(
+        db,
+        entry_date=receipt.received_at.date() if receipt.received_at else date.today(),
+        description=f"Goods receipt {receipt.number}",
+        source_type="goods_receipt",
+        source_id=receipt.id,
+        actor_id=actor_id,
+        lines=[
+            ("1300", order.total_amount, Decimal("0"), order.supplier.name),
+            ("2000", Decimal("0"), order.total_amount, order.supplier.name),
+        ],
+    )
     add_audit_log(
         db,
         user_id=actor_id,
@@ -420,9 +425,7 @@ def receive_purchase_order(
 
 def list_goods_receipts(db: Session, *, page: int, size: int) -> dict:
     return {
-        "items": repository.list_goods_receipts(
-            db, offset=(page - 1) * size, limit=size
-        ),
+        "items": repository.list_goods_receipts(db, offset=(page - 1) * size, limit=size),
         "page": page,
         "size": size,
         "total": repository.count_goods_receipts(db),

@@ -68,9 +68,7 @@ def create_purchase_order(
     db: DatabaseSession,
     actor: User = Depends(require_permission("purchase_orders.create")),
 ):
-    return service.create_purchase_order(
-        db, data, actor_id=actor.id, ip_address=_ip(request)
-    )
+    return service.create_purchase_order(db, data, actor_id=actor.id, ip_address=_ip(request))
 
 
 @router.put("/purchase-orders/{purchase_order_id}", response_model=PurchaseOrderResponse)
@@ -86,9 +84,7 @@ def update_purchase_order(
     )
 
 
-@router.post(
-    "/purchase-orders/{purchase_order_id}/submit", response_model=PurchaseOrderResponse
-)
+@router.post("/purchase-orders/{purchase_order_id}/submit", response_model=PurchaseOrderResponse)
 def submit_purchase_order(
     purchase_order_id: int,
     request: Request,
@@ -100,9 +96,7 @@ def submit_purchase_order(
     )
 
 
-@router.post(
-    "/purchase-orders/{purchase_order_id}/approve", response_model=PurchaseOrderResponse
-)
+@router.post("/purchase-orders/{purchase_order_id}/approve", response_model=PurchaseOrderResponse)
 def approve_purchase_order(
     purchase_order_id: int,
     request: Request,
@@ -118,9 +112,7 @@ def approve_purchase_order(
     )
 
 
-@router.post(
-    "/purchase-orders/{purchase_order_id}/reject", response_model=PurchaseOrderResponse
-)
+@router.post("/purchase-orders/{purchase_order_id}/reject", response_model=PurchaseOrderResponse)
 def reject_purchase_order(
     purchase_order_id: int,
     data: PurchaseOrderReason,
@@ -138,9 +130,7 @@ def reject_purchase_order(
     )
 
 
-@router.post(
-    "/purchase-orders/{purchase_order_id}/cancel", response_model=PurchaseOrderResponse
-)
+@router.post("/purchase-orders/{purchase_order_id}/cancel", response_model=PurchaseOrderResponse)
 def cancel_purchase_order(
     purchase_order_id: int,
     data: PurchaseOrderReason,

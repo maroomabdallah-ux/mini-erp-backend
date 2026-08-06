@@ -93,9 +93,7 @@ class GoodsReceipt(Base):
     __tablename__ = "goods_receipts"
     __table_args__ = (
         UniqueConstraint("number", name="uq_goods_receipts_number"),
-        UniqueConstraint(
-            "purchase_order_id", name="uq_goods_receipts_purchase_order_id"
-        ),
+        UniqueConstraint("purchase_order_id", name="uq_goods_receipts_purchase_order_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)

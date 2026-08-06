@@ -37,14 +37,10 @@ def get_token_payload(
         payload = decode_token(credentials.credentials)
 
     except ValueError as exc:
-        raise UnauthorizedError(
-            "Invalid or expired access token."
-        ) from exc
+        raise UnauthorizedError("Invalid or expired access token.") from exc
 
     if payload.get("type") != "access":
-        raise UnauthorizedError(
-            "Invalid token type."
-        )
+        raise UnauthorizedError("Invalid token type.")
 
     return payload
 
@@ -78,9 +74,7 @@ def require_permission(permission_code: str):
             for permission in role.permissions
         }
         if permission_code not in permissions:
-            raise ForbiddenError(
-                f"Missing required permission: {permission_code}."
-            )
+            raise ForbiddenError(f"Missing required permission: {permission_code}.")
         return current_user
 
     return permission_dependency

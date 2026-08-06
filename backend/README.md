@@ -34,6 +34,11 @@ Stop the project:
 
 ```bash
 docker compose down
+
+cd /Users/apple/miniERPsystem
+source .venv/bin/activate
+cd backend
+uvicorn app.main:app --reload
 ```
 
 ## 2. Important URLs
@@ -396,21 +401,21 @@ Do not assume role or permission IDs are the same in every database. Read the cu
 
 Permissions used by the currently implemented modules:
 
-| Code | Purpose |
-|---|---|
-| `users.manage` | List, create, update, deactivate users, and reset passwords |
-| `roles.manage` | List and create roles, and assign permissions |
-| `audit.read` | Read audit logs |
-| `products.read` | View products and categories |
-| `products.manage` | Create, update, deactivate, and import products and categories |
-| `warehouses.read` | View warehouses |
-| `warehouses.manage` | Create, update, and deactivate warehouses |
-| `inventory.read` | View stock levels and movement history |
-| `inventory.adjust` | Record manual stock adjustments |
-| `inventory.transfer` | Transfer stock between warehouses |
-| `inventory.count` | Record physical stock counts |
-| `inventory.count.approve` | Approve physical counts and apply variances |
-| `inventory.low_stock.read` | View low-stock alerts |
+| Code                       | Purpose                                                        |
+| -------------------------- | -------------------------------------------------------------- |
+| `users.manage`             | List, create, update, deactivate users, and reset passwords    |
+| `roles.manage`             | List and create roles, and assign permissions                  |
+| `audit.read`               | Read audit logs                                                |
+| `products.read`            | View products and categories                                   |
+| `products.manage`          | Create, update, deactivate, and import products and categories |
+| `warehouses.read`          | View warehouses                                                |
+| `warehouses.manage`        | Create, update, and deactivate warehouses                      |
+| `inventory.read`           | View stock levels and movement history                         |
+| `inventory.adjust`         | Record manual stock adjustments                                |
+| `inventory.transfer`       | Transfer stock between warehouses                              |
+| `inventory.count`          | Record physical stock counts                                   |
+| `inventory.count.approve`  | Approve physical counts and apply variances                    |
+| `inventory.low_stock.read` | View low-stock alerts                                          |
 
 New permissions should be added when their corresponding features and protected endpoints are implemented.
 
@@ -592,7 +597,36 @@ POST /quotations/{quotation_id}/expire
 
 Sales officers build draft quotations from active customers and products. The backend calculates subtotal, quotation-level discount, tax, and final total. Sent quotations can be recorded as accepted, rejected with a reason, or expired. Only drafts can be edited, every state transition is audited, and quantities are whole units.
 
-Accepted quotations are ready for conversion when the Sales Orders module is introduced; no stock is reserved or deducted by a quotation.
+Accepted quotations can be converted once into a Sales Order. Quotations never reserve or deduct stock.
+
+### Sales Orders and Delivery
+
+```text
+GET  /sales-orders?page=1&size=20&search=&status=&customer_id=
+GET  /sales-orders/{sales_order_id}
+GET  /sales-orders/{sales_order_id}/availability
+POST /quotations/{quotation_id}/convert
+POST /sales-orders/{sales_order_id}/confirm
+POST /sales-orders/{sales_order_id}/cancel
+POST /sales-orders/{sales_order_id}/deliver
+```
+
+Conversion freezes the accepted quotation's customer, product lines, prices, discount, tax, and totals in a draft Sales Order. Confirmation marks the order ready for fulfillment without changing inventory. Delivery requires one active warehouse with enough stock for every line; it then deducts all quantities atomically, creates an `SDN-...` delivery record, records immutable outbound stock movements, and prevents repeat delivery. Every transition is permission-controlled and audited.
+
+### Invoices and Customer Payments
+
+```text
+GET  /invoices?page=1&size=20&search=&status=&customer_id=&overdue=
+GET  /invoices/eligible-orders
+GET  /invoices/{invoice_id}
+POST /invoices
+POST /invoices/{invoice_id}/issue
+POST /invoices/{invoice_id}/cancel
+POST /invoices/{invoice_id}/payments
+POST /payments/{payment_id}/reverse
+```
+
+Only delivered Sales Orders can be invoiced, and each order can produce exactly one invoice. The invoice freezes the customer, products, quantities, prices, discount, tax, and totals. Issued invoices accept partial or full payments; the backend calculates paid amount, remaining balance, and status, rejects overpayments, and keeps reversed payments as immutable financial history. Sales Officers generate and issue invoices, Accountants post or reverse payments and cancel unpaid invoices, Managers have read access, and Administrators have full access.
 
 ## 24. Inventory Levels and Movements
 
@@ -667,8 +701,8 @@ Create a draft purchase order with an active supplier and at least one active pr
   "supplier_id": 1,
   "notes": "Monthly replenishment",
   "items": [
-    {"product_id": 1, "quantity": 10, "unit_cost": "4.50"},
-    {"product_id": 2, "quantity": 5, "unit_cost": "12.00"}
+    { "product_id": 1, "quantity": 10, "unit_cost": "4.50" },
+    { "product_id": 2, "quantity": 5, "unit_cost": "12.00" }
   ]
 }
 ```
@@ -688,24 +722,24 @@ Purchasing officers create, edit, submit, and cancel orders. Managers approve or
 Reject and cancel requests require a body such as:
 
 ```json
-{"reason": "Budget is not approved"}
+{ "reason": "Budget is not approved" }
 ```
 
 Receiving requires:
 
 ```json
-{"warehouse_id": 1, "notes": "Delivery verified"}
+{ "warehouse_id": 1, "notes": "Delivery verified" }
 ```
 
 ## 26. Important HTTP Status Codes
 
-| Status | Meaning |
-|---|---|
-| `401` | Missing, invalid, or expired token; or invalid login credentials |
-| `403` | Missing permission or deactivated account |
-| `404` | Requested user or role does not exist |
-| `409` | Username, email, or role name already exists |
-| `422` | Validation or business-rule failure |
+| Status | Meaning                                                          |
+| ------ | ---------------------------------------------------------------- |
+| `401`  | Missing, invalid, or expired token; or invalid login credentials |
+| `403`  | Missing permission or deactivated account                        |
+| `404`  | Requested user or role does not exist                            |
+| `409`  | Username, email, or role name already exists                     |
+| `422`  | Validation or business-rule failure                              |
 
 Standard error envelope:
 
@@ -780,3 +814,11 @@ docker compose run --rm api alembic check
 ```
 
 Every database schema change must be delivered through an Alembic migration. Apply migrations to a fresh database before considering a feature complete.
+
+## 29. Sales, Billing, and Accounting
+
+The backend implements direct and quotation-based sales orders, warehouse and credit checks at confirmation, delivery stock deduction, immutable issued invoices, linked credit notes, customer and supplier payments, balanced journals, account statements, and source-document timelines.
+
+Accounting provides `/accounting/dashboard`, `/accounts`, `/journal-entries`, `/supplier-payments`, `/supplier-outstanding`, customer/supplier statement endpoints, and `/invoices/{id}/accounting-timeline`. Operational events post journals automatically; manual journals are validated for debit/credit equality. System account codes, types, hierarchy, and active state are protected.
+
+Current Alembic head: `r2q1p0o9n8m7`.

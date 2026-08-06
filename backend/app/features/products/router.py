@@ -46,9 +46,7 @@ def create_category(
     db: DatabaseSession,
     actor: User = Depends(require_permission("products.manage")),
 ):
-    return service.create_category(
-        db, data, actor_id=actor.id, ip_address=_ip(request)
-    )
+    return service.create_category(db, data, actor_id=actor.id, ip_address=_ip(request))
 
 
 @router.put(
@@ -79,9 +77,7 @@ def deactivate_category(
     db: DatabaseSession,
     actor: User = Depends(require_permission("products.manage")),
 ):
-    return service.deactivate_category(
-        db, category_id, actor_id=actor.id, ip_address=_ip(request)
-    )
+    return service.deactivate_category(db, category_id, actor_id=actor.id, ip_address=_ip(request))
 
 
 @router.get("/products", response_model=ProductListResponse, tags=["Products"])
@@ -125,9 +121,7 @@ def create_product(
     db: DatabaseSession,
     actor: User = Depends(require_permission("products.manage")),
 ):
-    return service.create_product(
-        db, data, actor_id=actor.id, ip_address=_ip(request)
-    )
+    return service.create_product(db, data, actor_id=actor.id, ip_address=_ip(request))
 
 
 @router.post(
@@ -161,20 +155,14 @@ def update_product(
     db: DatabaseSession,
     actor: User = Depends(require_permission("products.manage")),
 ):
-    return service.update_product(
-        db, product_id, data, actor_id=actor.id, ip_address=_ip(request)
-    )
+    return service.update_product(db, product_id, data, actor_id=actor.id, ip_address=_ip(request))
 
 
-@router.delete(
-    "/products/{product_id}", response_model=ProductResponse, tags=["Products"]
-)
+@router.delete("/products/{product_id}", response_model=ProductResponse, tags=["Products"])
 def deactivate_product(
     product_id: int,
     request: Request,
     db: DatabaseSession,
     actor: User = Depends(require_permission("products.manage")),
 ):
-    return service.deactivate_product(
-        db, product_id, actor_id=actor.id, ip_address=_ip(request)
-    )
+    return service.deactivate_product(db, product_id, actor_id=actor.id, ip_address=_ip(request))

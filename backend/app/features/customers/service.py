@@ -51,9 +51,7 @@ def list_customers(
         ),
         "page": page,
         "size": size,
-        "total": repository.count_customers(
-            db, search=search, is_active=is_active, city=city
-        ),
+        "total": repository.count_customers(db, search=search, is_active=is_active, city=city),
     }
 
 
