@@ -192,7 +192,11 @@ def _source_details(db: Session, entry: JournalEntry) -> tuple[str, str | None, 
         )
     if entry.source_type == "goods_receipt":
         receipt = db.get(GoodsReceipt, entry.source_id)
-        return (receipt.number if receipt else "Goods receipt", "purchases", entry.source_id)
+        return (
+            receipt.number if receipt else "Goods receipt",
+            "purchases",
+            receipt.purchase_order_id if receipt else None,
+        )
     if entry.source_type in {"supplier_payment", "supplier_payment_reversal"}:
         payment = db.get(SupplierPayment, entry.source_id)
         return (payment.number if payment else "Supplier payment", "accounting", entry.source_id)
