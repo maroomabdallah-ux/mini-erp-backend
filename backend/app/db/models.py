@@ -8,7 +8,7 @@ from app.features.accounting.models import (
     SystemSetting,
 )
 from app.features.audit.model import AuditLog
-from app.features.billing.models import Invoice, InvoiceItem, Payment
+from app.features.billing.models import Invoice, InvoiceItem, Payment, PaymentAllocation
 from app.features.customers.models import Customer
 from app.features.inventory.models import InventoryCount, StockLevel, StockMovement
 from app.features.products.models import Category, Product
@@ -21,7 +21,7 @@ from app.features.purchases.models import (
 from app.features.quotations.models import Quotation, QuotationItem
 from app.features.sales.models import SalesDelivery, SalesDeliveryItem, SalesOrder, SalesOrderItem
 from app.features.suppliers.models import Supplier
-from app.features.users.model import Permission, RefreshToken, Role, User
+from app.features.users.model import LoginAttempt, Permission, RefreshToken, Role, User
 from app.features.warehouses.models import Warehouse
 
 __all__ = [
@@ -36,8 +36,10 @@ __all__ = [
     "InvoiceItem",
     "JournalEntry",
     "JournalEntryLine",
+    "LoginAttempt",
     "Permission",
     "Payment",
+    "PaymentAllocation",
     "Product",
     "PurchaseOrder",
     "PurchaseOrderItem",

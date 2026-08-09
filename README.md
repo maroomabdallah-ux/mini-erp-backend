@@ -10,6 +10,12 @@ The Mini ERP functional scope is complete. All core documents are connected from
 
 The final reporting suite provides profit, monthly sales, top-selling products, inventory valuation, receivables aging, and a running stock-movement ledger. The management dashboard also highlights overdue invoices, low stock, pending purchase approvals, and quotations approaching expiration.
 
+Final hardening includes persistent database-backed login rate limiting, uniform validation error envelopes, 85% backend test coverage, automated CI gates, daily PostgreSQL backups with a restore script, and a repeatable 20-user performance check. Purchase orders support destination warehouses, expected dates, annual sequential numbering, sending, partial receipts, multiple GRNs, received quantities, and over-receipt prevention. Customer receipts may be left on account or allocated across multiple invoices.
+
+Secrets are never committed. Copy `.env.example` to `.env` and replace every placeholder before starting Docker.
+The root `.env` is also loaded when the API runs directly from `backend`; its
+`DATABASE_URL` uses `localhost:5434`, while Docker overrides that value internally.
+
 ## 1. Run the Project
 
 From the project root directory, start PostgreSQL and the API:

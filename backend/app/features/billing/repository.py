@@ -3,7 +3,7 @@ from typing import cast
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.features.billing.models import Invoice, InvoiceItem, Payment
+from app.features.billing.models import Invoice, InvoiceItem, Payment, PaymentAllocation
 from app.features.customers.models import Customer
 from app.features.sales.models import SalesOrder
 
@@ -32,7 +32,14 @@ def get_by_order(db: Session, sales_order_id: int) -> Invoice | None:
 
 
 def get_payment(db: Session, payment_id: int, *, lock: bool = False) -> Payment | None:
-    statement = select(Payment).where(Payment.id == payment_id)
+    statement = (
+        select(Payment)
+        .options(
+            selectinload(Payment.allocations).selectinload(PaymentAllocation.invoice),
+            selectinload(Payment.customer),
+        )
+        .where(Payment.id == payment_id)
+    )
     if lock:
         statement = statement.with_for_update()
     return cast(Payment | None, db.scalar(statement))

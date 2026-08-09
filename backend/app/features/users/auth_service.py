@@ -1,7 +1,7 @@
-from collections import defaultdict, deque
 from datetime import UTC, datetime, timedelta
 from typing import cast
 
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -15,23 +15,24 @@ from app.core.security import (
 )
 from app.features.audit.service import add_audit_log
 from app.features.users import repository
-from app.features.users.model import RefreshToken, User
-
-_failed_logins: dict[str, deque[datetime]] = defaultdict(deque)
+from app.features.users.model import LoginAttempt, RefreshToken, User
 
 
-def _check_rate_limit(ip_address: str) -> None:
-    now = datetime.now(UTC)
-    cutoff = now - timedelta(minutes=settings.login_window_minutes)
-    attempts = _failed_logins[ip_address]
-    while attempts and attempts[0] < cutoff:
-        attempts.popleft()
-    if len(attempts) >= settings.login_max_attempts:
+def _check_rate_limit(db: Session, ip_address: str) -> None:
+    cutoff = datetime.now(UTC) - timedelta(minutes=settings.login_window_minutes)
+    db.execute(delete(LoginAttempt).where(LoginAttempt.attempted_at < cutoff))
+    attempts = db.scalar(
+        select(func.count(LoginAttempt.id)).where(
+            LoginAttempt.ip_address == ip_address, LoginAttempt.attempted_at >= cutoff
+        )
+    )
+    if int(attempts or 0) >= settings.login_max_attempts:
         raise UnauthorizedError("Too many failed login attempts. Try again later.")
 
 
-def _record_failure(ip_address: str) -> None:
-    _failed_logins[ip_address].append(datetime.now(UTC))
+def _record_failure(db: Session, ip_address: str) -> None:
+    db.add(LoginAttempt(ip_address=ip_address))
+    db.commit()
 
 
 def _issue_tokens(db: Session, user: User) -> tuple[str, str]:
@@ -49,14 +50,14 @@ def _issue_tokens(db: Session, user: User) -> tuple[str, str]:
 
 
 def login(db: Session, login_value: str, password: str, ip_address: str) -> tuple[str, str, User]:
-    _check_rate_limit(ip_address)
+    _check_rate_limit(db, ip_address)
     user = repository.get_user_by_login(db, login_value)
     if user is None or not verify_password(password, user.hashed_password):
-        _record_failure(ip_address)
+        _record_failure(db, ip_address)
         raise UnauthorizedError("Invalid username/email or password.")
     if not user.is_active:
         raise ForbiddenError("This account is deactivated.")
-    _failed_logins.pop(ip_address, None)
+    db.execute(delete(LoginAttempt).where(LoginAttempt.ip_address == ip_address))
     access_token, refresh_token = _issue_tokens(db, user)
     add_audit_log(
         db,

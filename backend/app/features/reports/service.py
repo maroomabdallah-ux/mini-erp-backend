@@ -1,6 +1,7 @@
 from collections import defaultdict
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
+from typing import TypedDict
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -31,14 +32,19 @@ def _invoices(db: Session, date_from: date, date_to: date) -> list[Invoice]:
     )
 
 
-def profit(db: Session, date_from: date, date_to: date) -> dict:
+def profit(db: Session, date_from: date, date_to: date, category_id: int | None = None) -> dict:
     revenue = Decimal("0")
     cogs = Decimal("0")
     for invoice in _invoices(db, date_from, date_to):
         sign = Decimal("-1") if invoice.document_type == "credit_note" else Decimal("1")
-        revenue += sign * invoice.total_amount
+        selected = [
+            item
+            for item in invoice.items
+            if category_id is None or item.product.category_id == category_id
+        ]
+        revenue += sign * sum((item.line_total for item in selected), Decimal("0"))
         cogs += sign * sum(
-            (Decimal(item.quantity) * item.product.cost_price for item in invoice.items),
+            (Decimal(item.quantity) * item.product.cost_price for item in selected),
             Decimal("0"),
         )
     gross = revenue - cogs
@@ -53,7 +59,9 @@ def profit(db: Session, date_from: date, date_to: date) -> dict:
     }
 
 
-def top_products(db: Session, date_from: date, date_to: date, limit: int) -> list[dict]:
+def top_products(
+    db: Session, date_from: date, date_to: date, limit: int, sort_by: str
+) -> list[dict]:
     totals: dict[int, dict] = {}
     for invoice in _invoices(db, date_from, date_to):
         sign = -1 if invoice.document_type == "credit_note" else 1
@@ -70,29 +78,31 @@ def top_products(db: Session, date_from: date, date_to: date, limit: int) -> lis
             )
             row["quantity_sold"] += sign * item.quantity
             row["net_sales"] += sign * item.line_total
-    return sorted(totals.values(), key=lambda row: row["net_sales"], reverse=True)[:limit]
+    key = "quantity_sold" if sort_by == "quantity" else "net_sales"
+    return sorted(totals.values(), key=lambda row: row[key], reverse=True)[:limit]
 
 
 def inventory_valuation(db: Session) -> dict:
     levels = db.scalars(
-        select(StockLevel).options(selectinload(StockLevel.product)).order_by(StockLevel.product_id)
+        select(StockLevel)
+        .options(selectinload(StockLevel.product), selectinload(StockLevel.warehouse))
+        .order_by(StockLevel.warehouse_id, StockLevel.product_id)
     ).all()
-    totals: dict[int, dict] = {}
+    items = []
     for level in levels:
-        row = totals.setdefault(
-            level.product_id,
+        items.append(
             {
+                "warehouse_id": level.warehouse_id,
+                "warehouse_name": level.warehouse.name,
                 "product_id": level.product_id,
                 "sku": level.product.sku,
                 "product_name": level.product.name,
-                "quantity": 0,
+                "quantity": level.quantity,
                 "unit_cost": level.product.cost_price,
-                "inventory_value": Decimal("0"),
+                "inventory_value": Decimal(level.quantity) * level.product.cost_price,
             },
         )
-        row["quantity"] += level.quantity
-        row["inventory_value"] += Decimal(level.quantity) * level.product.cost_price
-    items = sorted(totals.values(), key=lambda row: row["inventory_value"], reverse=True)
+    items.sort(key=lambda row: row["inventory_value"], reverse=True)
     return {
         "total_quantity": sum(row["quantity"] for row in items),
         "total_value": sum((row["inventory_value"] for row in items), Decimal("0")),
@@ -117,16 +127,20 @@ def receivables_aging(db: Session, as_of: date) -> dict:
             continue
         days = (as_of - invoice.due_date).days
         bucket = (
-            "current" if days <= 0 else "days_1_30" if days <= 30 else "days_31_60"
-            if days <= 60 else "days_61_90" if days <= 90 else "over_90"
+            "days_0_30"
+            if days <= 30
+            else "days_31_60"
+            if days <= 60
+            else "days_61_90"
+            if days <= 90
+            else "over_90"
         )
         row = customers.setdefault(
             invoice.customer_id,
             {
                 "customer_id": invoice.customer_id,
                 "customer_name": invoice.customer.name,
-                "current": Decimal("0"),
-                "days_1_30": Decimal("0"),
+                "days_0_30": Decimal("0"),
                 "days_31_60": Decimal("0"),
                 "days_61_90": Decimal("0"),
                 "over_90": Decimal("0"),
@@ -143,11 +157,18 @@ def receivables_aging(db: Session, as_of: date) -> dict:
     }
 
 
+class _MonthlyTotal(TypedDict):
+    invoice_count: int
+    net_sales: Decimal
+
+
 def monthly_sales(db: Session, months: int) -> list[dict]:
     today = date.today()
     first = (today.replace(day=1) - timedelta(days=months * 31)).replace(day=1)
     invoices = _invoices(db, first, today)
-    totals = defaultdict(lambda: {"invoice_count": 0, "net_sales": Decimal("0")})
+    totals: defaultdict[str, _MonthlyTotal] = defaultdict(
+        lambda: {"invoice_count": 0, "net_sales": Decimal("0")}
+    )
     for invoice in invoices:
         key = invoice.issue_date.strftime("%Y-%m")
         totals[key]["invoice_count"] += 1
@@ -200,8 +221,7 @@ def stock_movements(
                 "warehouse_id": movement.warehouse_id,
                 "warehouse_name": movement.warehouse.name,
                 "reference": (
-                    f"{movement.reference_type or 'manual'} "
-                    f"{movement.reference_id or movement.id}"
+                    f"{movement.reference_type or 'manual'} {movement.reference_id or movement.id}"
                 ),
                 "movement_type": movement.type,
                 "quantity_in": max(movement.quantity, 0),

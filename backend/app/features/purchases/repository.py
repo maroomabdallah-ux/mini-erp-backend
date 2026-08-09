@@ -15,9 +15,10 @@ from app.features.suppliers.models import Supplier
 def _order_options(statement):
     return statement.options(
         selectinload(PurchaseOrder.supplier),
+        selectinload(PurchaseOrder.warehouse),
         selectinload(PurchaseOrder.items).selectinload(PurchaseOrderItem.product),
-        selectinload(PurchaseOrder.receipt).selectinload(GoodsReceipt.warehouse),
-        selectinload(PurchaseOrder.receipt)
+        selectinload(PurchaseOrder.receipts).selectinload(GoodsReceipt.warehouse),
+        selectinload(PurchaseOrder.receipts)
         .selectinload(GoodsReceipt.items)
         .selectinload(GoodsReceiptItem.product),
     )

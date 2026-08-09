@@ -1,13 +1,18 @@
-"""Idempotent development seed data for RBAC and implemented master data."""
+"""Idempotent development seed data for RBAC and implemented business data."""
 
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy import select
 
 from app.core.security import hash_password
 from app.db.session import SessionLocal
+from app.features.accounting.service import post_entry
+from app.features.billing.models import Invoice, InvoiceItem, Payment
+from app.features.customers.models import Customer
 from app.features.inventory.models import StockLevel, StockMovement
 from app.features.products.models import Category, Product
+from app.features.suppliers.models import Supplier
 from app.features.users.model import Permission, Role, User
 from app.features.warehouses.models import Warehouse
 
@@ -336,7 +341,188 @@ def seed_catalog(db) -> tuple[int, int]:
         )
         db.add(product)
         created_products += 1
+    for index in range(len(PRODUCT_DATA) + 1, 51):
+        sku = f"DEMO-{index:03d}"
+        if db.scalar(select(Product).where(Product.sku == sku)) is not None:
+            continue
+        cost = Decimal(5 + index)
+        db.add(
+            Product(
+                sku=sku,
+                name=f"Demo Catalog Product {index:03d}",
+                barcode=f"990000000{index:03d}",
+                category_id=categories["Office Supplies"].id,
+                cost_price=cost,
+                sale_price=(cost * Decimal("1.35")).quantize(Decimal("0.01")),
+                min_stock_level=5,
+            )
+        )
+        created_products += 1
     return created_categories, created_products
+
+
+def seed_partners(db) -> tuple[int, int]:
+    suppliers = 0
+    customers = 0
+    for index in range(1, 11):
+        email = f"supplier{index:02d}@example.com"
+        if db.scalar(select(Supplier).where(Supplier.email == email)) is None:
+            db.add(
+                Supplier(
+                    name=f"Demo Supplier {index:02d}",
+                    email=email,
+                    phone=f"+9626555{index:04d}",
+                    credit_terms="Net 30",
+                )
+            )
+            suppliers += 1
+    for index in range(1, 21):
+        code = f"CUST-{index:04d}"
+        if db.scalar(select(Customer).where(Customer.code == code)) is None:
+            db.add(
+                Customer(
+                    code=code,
+                    name=f"Demo Customer {index:02d}",
+                    contact_person=f"Contact {index:02d}",
+                    email=f"customer{index:02d}@example.com",
+                    phone=f"+9627955{index:04d}",
+                    city="Amman",
+                    credit_limit=Decimal("5000.00"),
+                )
+            )
+            customers += 1
+    return suppliers, customers
+
+
+def seed_reporting_history(db, *, admin_id: int) -> int:
+    """Create a coherent 12-month sales history for development dashboards."""
+    if db.scalar(select(Invoice.id).where(Invoice.notes == "Demo reporting dataset")):
+        return 0
+    customers = list(
+        db.scalars(
+            select(Customer)
+            .where(Customer.code.like("CUST-%"), Customer.is_active.is_(True))
+            .order_by(Customer.id)
+            .limit(8)
+        ).all()
+    )
+    products = list(
+        db.scalars(
+            select(Product)
+            .where(Product.is_active.is_(True))
+            .order_by(Product.id)
+            .limit(10)
+        ).all()
+    )
+    if not customers or len(products) < 2:
+        return 0
+
+    month = date.today().replace(day=1)
+    months: list[date] = []
+    for _ in range(12):
+        months.append(month)
+        month = (month - timedelta(days=1)).replace(day=1)
+    months.reverse()
+    created = 0
+    for month_index, month_start in enumerate(months):
+        for sequence, day in enumerate((6, 19), start=1):
+            issue_date = month_start.replace(day=day)
+            if issue_date > date.today():
+                issue_date = date.today()
+            customer = customers[(month_index * 2 + sequence) % len(customers)]
+            selected = [
+                products[(month_index + sequence) % len(products)],
+                products[(month_index + sequence + 3) % len(products)],
+            ]
+            quantities = (4 + (month_index % 5), 2 + ((month_index + sequence) % 4))
+            items = []
+            subtotal = Decimal("0")
+            for product, quantity in zip(selected, quantities, strict=True):
+                line_total = product.sale_price * quantity
+                subtotal += line_total
+                items.append(
+                    InvoiceItem(
+                        product_id=product.id,
+                        quantity=quantity,
+                        unit_price=product.sale_price,
+                        line_total=line_total,
+                    )
+                )
+            tax = (subtotal * Decimal("0.16")).quantize(Decimal("0.01"))
+            total = subtotal + tax
+            is_open = month_index >= 10 and sequence == 2
+            is_partial = month_index == 11 and sequence == 1
+            paid_amount = (
+                (total * Decimal("0.55")).quantize(Decimal("0.01"))
+                if is_partial
+                else Decimal("0")
+                if is_open
+                else total
+            )
+            status = "partially_paid" if is_partial else "issued" if is_open else "paid"
+            issued_at = datetime.combine(issue_date, datetime.min.time(), tzinfo=UTC)
+            invoice = Invoice(
+                number=f"DEMO-INV-{month_start:%Y%m}-{sequence:02d}",
+                customer_id=customer.id,
+                status=status,
+                issue_date=issue_date,
+                due_date=issue_date + timedelta(days=30),
+                notes="Demo reporting dataset",
+                subtotal=subtotal,
+                discount_amount=Decimal("0"),
+                tax_amount=tax,
+                total_amount=total,
+                paid_amount=paid_amount,
+                created_by=admin_id,
+                issued_by=admin_id,
+                issued_at=issued_at,
+                created_at=issued_at,
+                items=items,
+            )
+            db.add(invoice)
+            db.flush()
+            post_entry(
+                db,
+                entry_date=issue_date,
+                description=f"Demo sales invoice {invoice.number}",
+                source_type="sales_invoice",
+                source_id=invoice.id,
+                actor_id=admin_id,
+                lines=[
+                    ("1200", total, Decimal("0"), customer.name),
+                    ("4000", Decimal("0"), total, customer.name),
+                ],
+            )
+            if paid_amount > 0:
+                payment = Payment(
+                    number=f"DEMO-PAY-{month_start:%Y%m}-{sequence:02d}",
+                    invoice_id=invoice.id,
+                    customer_id=customer.id,
+                    amount=paid_amount,
+                    payment_date=min(issue_date + timedelta(days=12), date.today()),
+                    method="bank_transfer" if sequence == 1 else "cash",
+                    reference=f"DEMO-REF-{month_start:%Y%m}-{sequence:02d}",
+                    notes="Demo reporting dataset",
+                    status="posted",
+                    created_by=admin_id,
+                )
+                db.add(payment)
+                db.flush()
+                cash_code = "1100" if payment.method == "bank_transfer" else "1000"
+                post_entry(
+                    db,
+                    entry_date=payment.payment_date,
+                    description=f"Demo customer payment {payment.number}",
+                    source_type="customer_payment",
+                    source_id=payment.id,
+                    actor_id=admin_id,
+                    lines=[
+                        (cash_code, paid_amount, Decimal("0"), customer.name),
+                        ("1200", Decimal("0"), paid_amount, customer.name),
+                    ],
+                )
+            created += 1
+    return created
 
 
 def seed_warehouses(db) -> int:
@@ -456,13 +642,17 @@ def seed() -> None:
 
         created_categories, created_products = seed_catalog(db)
         created_warehouses = seed_warehouses(db)
+        created_suppliers, created_customers = seed_partners(db)
         db.flush()
         created_stock_levels = seed_inventory(db, admin_id=admin.id)
+        created_invoices = seed_reporting_history(db, admin_id=admin.id)
         db.commit()
         print(
             "Seed complete. "
             f"Added {created_categories} categories, {created_products} products, "
             f"and {created_warehouses} warehouses. "
+            f"Added {created_suppliers} suppliers and {created_customers} customers. "
+            f"Added {created_invoices} historical invoices. "
             f"Added {created_stock_levels} stock levels. "
             "Demo logins use password Passw0rd!: admin, purchasing, sales, "
             "warehouse, accountant, manager."

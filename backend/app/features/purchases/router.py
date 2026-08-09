@@ -30,7 +30,14 @@ def list_purchase_orders(
     size: int = Query(20, ge=1, le=100),
     search: str | None = Query(default=None, max_length=255),
     status_filter: Literal[
-        "draft", "pending_approval", "approved", "rejected", "cancelled", "received"
+        "draft",
+        "pending_approval",
+        "approved",
+        "rejected",
+        "cancelled",
+        "received",
+        "sent",
+        "partially_received",
     ]
     | None = Query(default=None, alias="status"),
     supplier_id: int | None = Query(default=None, gt=0),
@@ -127,6 +134,18 @@ def reject_purchase_order(
         actor_id=actor.id,
         actor_is_admin=any(role.is_active and role.name == "admin" for role in actor.roles),
         ip_address=_ip(request),
+    )
+
+
+@router.post("/purchase-orders/{purchase_order_id}/send", response_model=PurchaseOrderResponse)
+def send_purchase_order(
+    purchase_order_id: int,
+    request: Request,
+    db: DatabaseSession,
+    actor: User = Depends(require_permission("purchase_orders.update")),
+):
+    return service.send_purchase_order(
+        db, purchase_order_id, actor_id=actor.id, ip_address=_ip(request)
     )
 
 

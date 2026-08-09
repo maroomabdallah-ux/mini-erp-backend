@@ -94,7 +94,7 @@ class InvoiceItem(Base):
         ),
     )
     id: Mapped[int] = mapped_column(primary_key=True)
-    invoice_id: Mapped[int] = mapped_column(
+    invoice_id: Mapped[int | None] = mapped_column(
         ForeignKey("invoices.id", ondelete="CASCADE"), index=True
     )
     product_id: Mapped[int] = mapped_column(
@@ -119,7 +119,10 @@ class Payment(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     number: Mapped[str] = mapped_column(String(30), index=True)
     invoice_id: Mapped[int] = mapped_column(
-        ForeignKey("invoices.id", ondelete="RESTRICT"), index=True
+        ForeignKey("invoices.id", ondelete="RESTRICT"), index=True, nullable=True
+    )
+    customer_id: Mapped[int] = mapped_column(
+        ForeignKey("customers.id", ondelete="RESTRICT"), index=True
     )
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     payment_date: Mapped[date] = mapped_column(Date, index=True)
@@ -134,3 +137,24 @@ class Payment(Base):
     reversed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     reversal_reason: Mapped[str | None] = mapped_column(String(500))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    customer: Mapped[Customer] = relationship()
+    allocations: Mapped[list["PaymentAllocation"]] = relationship(
+        cascade="all, delete-orphan", order_by="PaymentAllocation.id"
+    )
+
+
+class PaymentAllocation(Base):
+    __tablename__ = "payment_allocations"
+    __table_args__ = (
+        UniqueConstraint("payment_id", "invoice_id", name="uq_payment_allocation_invoice"),
+        CheckConstraint("allocated_amount > 0", name="ck_payment_allocations_positive"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    payment_id: Mapped[int] = mapped_column(
+        ForeignKey("payments.id", ondelete="CASCADE"), index=True
+    )
+    invoice_id: Mapped[int] = mapped_column(
+        ForeignKey("invoices.id", ondelete="RESTRICT"), index=True
+    )
+    allocated_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    invoice: Mapped[Invoice] = relationship()

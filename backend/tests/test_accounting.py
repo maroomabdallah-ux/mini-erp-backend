@@ -62,9 +62,7 @@ def test_chart_of_accounts_and_balanced_manual_entry() -> None:
     assert entry.status_code == 201
     assert entry.json()["source_reference"] == "Manual journal entry"
     assert sum(float(line["debit"]) for line in entry.json()["lines"]) == 25
-    filtered = client.get(
-        f"/journal-entries?account_id={created.json()['id']}", headers=accountant
-    )
+    filtered = client.get(f"/journal-entries?account_id={created.json()['id']}", headers=accountant)
     assert filtered.status_code == 200 and filtered.json()["total"] == 1
     dashboard = client.get("/accounting/dashboard", headers=accountant)
     assert dashboard.status_code == 200

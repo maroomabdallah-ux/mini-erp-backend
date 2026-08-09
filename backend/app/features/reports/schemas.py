@@ -22,6 +22,8 @@ class TopProductRow(BaseModel):
 
 
 class InventoryValuationRow(BaseModel):
+    warehouse_id: int
+    warehouse_name: str
     product_id: int
     sku: str
     product_name: str
@@ -39,8 +41,7 @@ class InventoryValuationReport(BaseModel):
 class ReceivableAgingRow(BaseModel):
     customer_id: int
     customer_name: str
-    current: Decimal
-    days_1_30: Decimal
+    days_0_30: Decimal
     days_31_60: Decimal
     days_61_90: Decimal
     over_90: Decimal
@@ -83,4 +84,3 @@ class ManagementDashboard(BaseModel):
     low_stock_products: int
     pending_purchase_approvals: int
     quotations_expiring_soon: int
-

@@ -22,6 +22,20 @@ GET /reports/stock-movements
 
 Each endpoint enforces the corresponding `reports.*.read` permission from the SRS role matrix.
 
+Purchase receiving supports multiple partial GRNs and tracks `received_quantity` per order line. Customer receipts support multiple invoice allocations through `POST /payments`.
+
+Quality and operations:
+
+```bash
+docker compose run --rm api pytest --cov=app --cov-fail-under=70
+docker compose run --rm api ruff check app tests
+docker compose run --rm api mypy app
+docker compose --profile backup up -d backup
+.venv/bin/python scripts/performance_check.py
+```
+
+The measured backend coverage is 85%. The backup service creates one compressed PostgreSQL dump per day and retains 30 days. Use `scripts/restore.sh backups/<file>.dump` for recovery testing.
+
 ## 1. Run the Project
 
 From the project root directory, start PostgreSQL and the API:
@@ -29,6 +43,9 @@ From the project root directory, start PostgreSQL and the API:
 ```bash
 docker compose up -d postgres api
 ```
+
+For direct local development, keep configuration in the root `.env` file. Its
+`DATABASE_URL` must point to PostgreSQL at `localhost:5434`.
 
 Apply all database migrations:
 

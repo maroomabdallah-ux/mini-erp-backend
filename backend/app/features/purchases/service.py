@@ -2,6 +2,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import uuid4
 
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -69,6 +70,9 @@ def _validate_entities(db: Session, data: PurchaseOrderCreate | PurchaseOrderUpd
         raise SupplierNotFoundError(data.supplier_id)
     if not supplier.is_active:
         raise PurchaseOrderEntityError("Purchase orders require an active supplier.")
+    warehouse = warehouse_repository.get_warehouse(db, data.warehouse_id)
+    if warehouse is None or not warehouse.is_active:
+        raise PurchaseOrderEntityError("Purchase orders require an active destination warehouse.")
 
     products = {}
     for item in data.items:
@@ -82,7 +86,18 @@ def _validate_entities(db: Session, data: PurchaseOrderCreate | PurchaseOrderUpd
                 f"Product with id {product.id} is inactive and cannot be ordered."
             )
         products[product.id] = product
-    return supplier, products
+    return supplier, warehouse, products
+
+
+def _next_po_number(db: Session) -> str:
+    year = datetime.now(UTC).year
+    db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": year * 1009 + 71})
+    prefix = f"PO-{year}-"
+    latest = db.scalar(
+        select(func.max(PurchaseOrder.number)).where(PurchaseOrder.number.like(f"{prefix}%"))
+    )
+    sequence = int(latest.rsplit("-", 1)[-1]) + 1 if latest else 1
+    return f"{prefix}{sequence:04d}"
 
 
 def _replace_items(order: PurchaseOrder, data: PurchaseOrderCreate | PurchaseOrderUpdate) -> None:
@@ -102,6 +117,8 @@ def _snapshot(order: PurchaseOrder) -> dict:
     return {
         "number": order.number,
         "supplier_id": order.supplier_id,
+        "warehouse_id": order.warehouse_id,
+        "expected_date": str(order.expected_date),
         "status": order.status,
         "notes": order.notes,
         "total_amount": _money(order.total_amount),
@@ -162,8 +179,10 @@ def create_purchase_order(
 ) -> PurchaseOrder:
     _validate_entities(db, data)
     order = PurchaseOrder(
-        number=f"PO-{datetime.now(UTC):%Y%m%d}-{uuid4().hex[:8].upper()}",
+        number=_next_po_number(db),
         supplier_id=data.supplier_id,
+        warehouse_id=data.warehouse_id,
+        expected_date=data.expected_date,
         notes=data.notes,
         status="draft",
         created_by=actor_id,
@@ -198,6 +217,8 @@ def update_purchase_order(
     _validate_entities(db, data)
     old_values = _snapshot(order)
     order.supplier_id = data.supplier_id
+    order.warehouse_id = data.warehouse_id
+    order.expected_date = data.expected_date
     order.notes = data.notes
     _replace_items(order, data)
     db.flush()
@@ -305,6 +326,28 @@ def reject_purchase_order(
     return _order_or_error(db, order.id)
 
 
+def send_purchase_order(
+    db: Session, purchase_order_id: int, *, actor_id: int, ip_address: str | None
+) -> PurchaseOrder:
+    order = _order_or_error(db, purchase_order_id, lock=True)
+    if order.status != "approved":
+        raise PurchaseOrderStateError("Only approved purchase orders can be sent.")
+    order.status = "sent"
+    order.sent_at = _now()
+    add_audit_log(
+        db,
+        user_id=actor_id,
+        action="send",
+        table_name="purchase_orders",
+        record_id=order.id,
+        ip_address=ip_address,
+        old_values={"status": "approved"},
+        new_values={"status": "sent"},
+    )
+    _commit(db)
+    return _order_or_error(db, order.id)
+
+
 def cancel_purchase_order(
     db: Session,
     purchase_order_id: int,
@@ -346,9 +389,11 @@ def receive_purchase_order(
     ip_address: str | None,
 ) -> PurchaseOrder:
     order = _order_or_error(db, purchase_order_id, lock=True)
-    if order.status != "approved":
-        raise PurchaseOrderStateError("Only approved purchase orders can be received.")
-    warehouse = warehouse_repository.get_warehouse(db, data.warehouse_id)
+    if order.status not in {"approved", "sent", "partially_received"}:
+        raise PurchaseOrderStateError(
+            "Only approved, sent, or partially received orders can be received."
+        )
+    warehouse = warehouse_repository.get_warehouse(db, order.warehouse_id)
     if warehouse is None:
         from app.features.warehouses.exceptions import WarehouseNotFoundError
 
@@ -365,7 +410,18 @@ def receive_purchase_order(
     )
     db.add(receipt)
     db.flush()
-    for item in order.items:
+    order_items = {item.id: item for item in order.items}
+    receipt_value = Decimal("0")
+    for received in data.items:
+        item = order_items.get(received.purchase_order_item_id)
+        if item is None:
+            raise PurchaseOrderEntityError("Receipt item does not belong to this purchase order.")
+        remaining = item.quantity - item.received_quantity
+        if received.quantity > remaining:
+            raise PurchaseOrderConflictError(
+                f"Over-receipt rejected for {item.product.name}: remaining {remaining}, "
+                f"received {received.quantity}."
+            )
         product = inventory_repository.lock_product(db, item.product_id)
         if product is None or not product.is_active:
             raise PurchaseOrderEntityError(
@@ -376,22 +432,35 @@ def receive_purchase_order(
             stock = StockLevel(product_id=item.product_id, warehouse_id=warehouse.id, quantity=0)
             db.add(stock)
             db.flush()
-        stock.quantity += item.quantity
+        stock.quantity += received.quantity
+        item.received_quantity += received.quantity
+        receipt_value += item.unit_cost * received.quantity
         db.add(
             StockMovement(
                 product_id=item.product_id,
                 warehouse_id=warehouse.id,
                 type="in",
-                quantity=item.quantity,
+                quantity=received.quantity,
                 reference_type="goods_receipt",
                 reference_id=receipt.number,
                 reason=data.notes or f"Received against {order.number}",
                 created_by=actor_id,
             )
         )
-        receipt.items.append(GoodsReceiptItem(product_id=item.product_id, quantity=item.quantity))
+        receipt.items.append(
+            GoodsReceiptItem(
+                product_id=item.product_id,
+                purchase_order_item_id=item.id,
+                quantity=received.quantity,
+            )
+        )
 
-    order.status = "received"
+    previous_status = order.status
+    order.status = (
+        "received"
+        if all(item.received_quantity == item.quantity for item in order.items)
+        else "partially_received"
+    )
     post_entry(
         db,
         entry_date=receipt.received_at.date() if receipt.received_at else date.today(),
@@ -400,8 +469,8 @@ def receive_purchase_order(
         source_id=receipt.id,
         actor_id=actor_id,
         lines=[
-            ("1300", order.total_amount, Decimal("0"), order.supplier.name),
-            ("2000", Decimal("0"), order.total_amount, order.supplier.name),
+            ("1300", receipt_value, Decimal("0"), order.supplier.name),
+            ("2000", Decimal("0"), receipt_value, order.supplier.name),
         ],
     )
     add_audit_log(
@@ -411,7 +480,7 @@ def receive_purchase_order(
         table_name="purchase_orders",
         record_id=order.id,
         ip_address=ip_address,
-        old_values={"status": "approved"},
+        old_values={"status": previous_status},
         new_values={
             "status": order.status,
             "goods_receipt_id": receipt.id,

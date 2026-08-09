@@ -37,6 +37,23 @@ class PaymentCreate(BaseModel):
         return cleaned or None
 
 
+class PaymentAllocationInput(BaseModel):
+    invoice_id: int = Field(gt=0)
+    amount: Decimal = Field(gt=0, max_digits=14, decimal_places=2)
+
+
+class CustomerPaymentCreate(PaymentCreate):
+    customer_id: int = Field(gt=0)
+    allocations: list[PaymentAllocationInput] = Field(default_factory=list, max_length=200)
+
+
+class PaymentAllocationResponse(BaseModel):
+    id: int
+    invoice_id: int
+    allocated_amount: Decimal
+    model_config = ConfigDict(from_attributes=True)
+
+
 class ProductSummary(BaseModel):
     id: int
     sku: str
@@ -75,7 +92,8 @@ class InvoiceItemResponse(BaseModel):
 class PaymentResponse(BaseModel):
     id: int
     number: str
-    invoice_id: int
+    invoice_id: int | None
+    customer_id: int
     amount: Decimal
     payment_date: date
     method: PaymentMethod
@@ -87,6 +105,7 @@ class PaymentResponse(BaseModel):
     reversed_at: datetime | None
     reversal_reason: str | None
     created_at: datetime
+    allocations: list[PaymentAllocationResponse] = Field(default_factory=list)
     model_config = ConfigDict(from_attributes=True)
 
 

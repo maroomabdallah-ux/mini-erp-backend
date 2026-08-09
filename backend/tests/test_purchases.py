@@ -1,3 +1,4 @@
+from datetime import date, timedelta
 from uuid import uuid4
 
 import pytest
@@ -29,12 +30,8 @@ def login_headers(login: str) -> dict[str, str]:
 
 def cleanup_purchase_data() -> None:
     with SessionLocal() as db:
-        test_supplier_ids = select(Supplier.id).where(
-            Supplier.name.like("Test PO Supplier %")
-        )
-        order_ids = select(PurchaseOrder.id).where(
-            PurchaseOrder.supplier_id.in_(test_supplier_ids)
-        )
+        test_supplier_ids = select(Supplier.id).where(Supplier.name.like("Test PO Supplier %"))
+        order_ids = select(PurchaseOrder.id).where(PurchaseOrder.supplier_id.in_(test_supplier_ids))
         receipt_ids = select(GoodsReceipt.id).where(GoodsReceipt.purchase_order_id.in_(order_ids))
         product_ids = select(Product.id).where(Product.sku.like("TPO-%"))
         db.execute(
@@ -48,9 +45,13 @@ def cleanup_purchase_data() -> None:
         )
         db.execute(delete(StockMovement).where(StockMovement.product_id.in_(product_ids)))
         db.execute(delete(StockLevel).where(StockLevel.product_id.in_(product_ids)))
-        db.execute(delete(GoodsReceiptItem).where(GoodsReceiptItem.goods_receipt_id.in_(receipt_ids)))
+        db.execute(
+            delete(GoodsReceiptItem).where(GoodsReceiptItem.goods_receipt_id.in_(receipt_ids))
+        )
         db.execute(delete(GoodsReceipt).where(GoodsReceipt.id.in_(receipt_ids)))
-        db.execute(delete(PurchaseOrderItem).where(PurchaseOrderItem.purchase_order_id.in_(order_ids)))
+        db.execute(
+            delete(PurchaseOrderItem).where(PurchaseOrderItem.purchase_order_id.in_(order_ids))
+        )
         db.execute(delete(PurchaseOrder).where(PurchaseOrder.id.in_(order_ids)))
         db.execute(delete(Product).where(Product.sku.like("TPO-%")))
         db.execute(delete(Warehouse).where(Warehouse.code.like("TPO-%")))
@@ -106,9 +107,11 @@ def create_entities(suffix: str) -> tuple[dict, list[dict], dict]:
     return supplier_response.json(), products, warehouse_response.json()
 
 
-def order_payload(supplier: dict, products: list[dict]) -> dict:
+def order_payload(supplier: dict, products: list[dict], warehouse: dict) -> dict:
     return {
         "supplier_id": supplier["id"],
+        "warehouse_id": warehouse["id"],
+        "expected_date": str(date.today() + timedelta(days=7)),
         "notes": "Monthly replenishment",
         "items": [
             {"product_id": products[0]["id"], "quantity": 2, "unit_cost": "10.00"},
@@ -127,11 +130,12 @@ def test_complete_purchase_order_workflow_updates_inventory() -> None:
     created = client.post(
         "/purchase-orders",
         headers=purchasing,
-        json=order_payload(supplier, products),
+        json=order_payload(supplier, products, warehouse),
     )
     assert created.status_code == 201
     order = created.json()
     assert order["status"] == "draft"
+    assert order["number"].startswith(f"PO-{date.today().year}-")
     assert order["total_amount"] == "35.00"
     assert len(order["items"]) == 2
 
@@ -142,30 +146,36 @@ def test_complete_purchase_order_workflow_updates_inventory() -> None:
     assert listed.status_code == 200
     assert listed.json()["total"] == 1
 
-    submitted = client.post(
-        f"/purchase-orders/{order['id']}/submit", headers=purchasing
-    )
+    submitted = client.post(f"/purchase-orders/{order['id']}/submit", headers=purchasing)
     assert submitted.status_code == 200
     assert submitted.json()["status"] == "pending_approval"
-    assert client.post(
-        f"/purchase-orders/{order['id']}/approve", headers=purchasing
-    ).status_code == 403
-
-    approved = client.post(
-        f"/purchase-orders/{order['id']}/approve", headers=manager
+    assert (
+        client.post(f"/purchase-orders/{order['id']}/approve", headers=purchasing).status_code
+        == 403
     )
+
+    approved = client.post(f"/purchase-orders/{order['id']}/approve", headers=manager)
     assert approved.status_code == 200
     assert approved.json()["status"] == "approved"
-    assert client.put(
-        f"/purchase-orders/{order['id']}",
-        headers=purchasing,
-        json=order_payload(supplier, products),
-    ).status_code == 422
+    assert (
+        client.put(
+            f"/purchase-orders/{order['id']}",
+            headers=purchasing,
+            json=order_payload(supplier, products, warehouse),
+        ).status_code
+        == 422
+    )
 
     received = client.post(
         f"/purchase-orders/{order['id']}/receive",
         headers=keeper,
-        json={"warehouse_id": warehouse["id"], "notes": "Delivery verified"},
+        json={
+            "notes": "Delivery verified",
+            "items": [
+                {"purchase_order_item_id": item["id"], "quantity": item["quantity"]}
+                for item in approved.json()["items"]
+            ],
+        },
     )
     assert received.status_code == 201
     received_order = received.json()
@@ -179,9 +189,7 @@ def test_complete_purchase_order_workflow_updates_inventory() -> None:
         json={"warehouse_id": warehouse["id"]},
     )
     assert repeated.status_code == 422
-    stock = client.get(
-        f"/inventory/stock?warehouse_id={warehouse['id']}", headers=keeper
-    )
+    stock = client.get(f"/inventory/stock?warehouse_id={warehouse['id']}", headers=keeper)
     quantities = {item["product_id"]: item["quantity"] for item in stock.json()["items"]}
     assert quantities == {products[0]["id"]: 2, products[1]["id"]: 3}
 
@@ -197,15 +205,62 @@ def test_complete_purchase_order_workflow_updates_inventory() -> None:
     assert any(item["id"] == received_order["receipt"]["id"] for item in receipts.json()["items"])
 
 
+def test_partial_receipts_track_remaining_and_reject_over_receipt() -> None:
+    suffix = uuid4().hex[:8]
+    supplier, products, warehouse = create_entities(suffix)
+    purchasing = login_headers("purchasing")
+    manager = login_headers("manager")
+    keeper = login_headers("warehouse")
+    order = client.post(
+        "/purchase-orders",
+        headers=purchasing,
+        json=order_payload(supplier, products, warehouse),
+    ).json()
+    client.post(f"/purchase-orders/{order['id']}/submit", headers=purchasing)
+    approved = client.post(f"/purchase-orders/{order['id']}/approve", headers=manager).json()
+    sent = client.post(f"/purchase-orders/{order['id']}/send", headers=purchasing)
+    assert sent.status_code == 200 and sent.json()["status"] == "sent"
+    first_line = approved["items"][0]
+    partial = client.post(
+        f"/purchase-orders/{order['id']}/receive",
+        headers=keeper,
+        json={"items": [{"purchase_order_item_id": first_line["id"], "quantity": 1}]},
+    )
+    assert partial.status_code == 201
+    assert partial.json()["status"] == "partially_received"
+    assert partial.json()["items"][0]["received_quantity"] == 1
+    over = client.post(
+        f"/purchase-orders/{order['id']}/receive",
+        headers=keeper,
+        json={"items": [{"purchase_order_item_id": first_line["id"], "quantity": 2}]},
+    )
+    assert over.status_code == 409
+    remaining = [
+        {
+            "purchase_order_item_id": item["id"],
+            "quantity": item["quantity"] - item["received_quantity"],
+        }
+        for item in partial.json()["items"]
+    ]
+    completed = client.post(
+        f"/purchase-orders/{order['id']}/receive",
+        headers=keeper,
+        json={"items": remaining},
+    )
+    assert completed.status_code == 201
+    assert completed.json()["status"] == "received"
+    assert len(completed.json()["receipts"]) == 2
+
+
 def test_admin_can_approve_an_order_they_created() -> None:
     suffix = uuid4().hex[:8]
-    supplier, products, _ = create_entities(suffix)
+    supplier, products, warehouse = create_entities(suffix)
     admin = login_headers("admin")
 
     created = client.post(
         "/purchase-orders",
         headers=admin,
-        json=order_payload(supplier, products),
+        json=order_payload(supplier, products, warehouse),
     )
     assert created.status_code == 201
 
@@ -232,11 +287,12 @@ def test_rejection_and_cancellation_are_audited_and_terminal() -> None:
     keeper = login_headers("warehouse")
 
     created = client.post(
-        "/purchase-orders", headers=purchasing, json=order_payload(supplier, products)
+        "/purchase-orders", headers=purchasing, json=order_payload(supplier, products, warehouse)
     ).json()
-    assert client.post(
-        f"/purchase-orders/{created['id']}/submit", headers=purchasing
-    ).status_code == 200
+    assert (
+        client.post(f"/purchase-orders/{created['id']}/submit", headers=purchasing).status_code
+        == 200
+    )
     rejected = client.post(
         f"/purchase-orders/{created['id']}/reject",
         headers=manager,
@@ -245,14 +301,17 @@ def test_rejection_and_cancellation_are_audited_and_terminal() -> None:
     assert rejected.status_code == 200
     assert rejected.json()["status"] == "rejected"
     assert rejected.json()["rejection_reason"] == "Budget is not approved"
-    assert client.post(
-        f"/purchase-orders/{created['id']}/receive",
-        headers=keeper,
-        json={"warehouse_id": warehouse["id"]},
-    ).status_code == 422
+    assert (
+        client.post(
+            f"/purchase-orders/{created['id']}/receive",
+            headers=keeper,
+            json={"warehouse_id": warehouse["id"]},
+        ).status_code
+        == 422
+    )
 
     cancellable = client.post(
-        "/purchase-orders", headers=purchasing, json=order_payload(supplier, products)
+        "/purchase-orders", headers=purchasing, json=order_payload(supplier, products, warehouse)
     ).json()
     cancelled = client.post(
         f"/purchase-orders/{cancellable['id']}/cancel",
@@ -261,35 +320,30 @@ def test_rejection_and_cancellation_are_audited_and_terminal() -> None:
     )
     assert cancelled.status_code == 200
     assert cancelled.json()["status"] == "cancelled"
-    assert client.post(
-        f"/purchase-orders/{cancellable['id']}/submit", headers=purchasing
-    ).status_code == 422
+    assert (
+        client.post(f"/purchase-orders/{cancellable['id']}/submit", headers=purchasing).status_code
+        == 422
+    )
 
 
 def test_purchase_order_validation_and_rbac() -> None:
     suffix = uuid4().hex[:8]
-    supplier, products, _warehouse = create_entities(suffix)
+    supplier, products, warehouse = create_entities(suffix)
     purchasing = login_headers("purchasing")
     sales = login_headers("sales")
     manager = login_headers("manager")
-    payload = order_payload(supplier, products)
+    payload = order_payload(supplier, products, warehouse)
 
     duplicate = payload | {"items": [payload["items"][0], payload["items"][0]]}
-    assert client.post(
-        "/purchase-orders", headers=purchasing, json=duplicate
-    ).status_code == 422
+    assert client.post("/purchase-orders", headers=purchasing, json=duplicate).status_code == 422
     fractional = payload | {
         "items": [{"product_id": products[0]["id"], "quantity": 0.5, "unit_cost": "10.00"}]
     }
-    assert client.post(
-        "/purchase-orders", headers=purchasing, json=fractional
-    ).status_code == 422
-    assert client.post(
-        "/purchase-orders", headers=sales, json=payload
-    ).status_code == 403
+    assert client.post("/purchase-orders", headers=purchasing, json=fractional).status_code == 422
+    assert client.post("/purchase-orders", headers=sales, json=payload).status_code == 403
     assert client.get("/purchase-orders", headers=sales).status_code == 403
 
     order = client.post("/purchase-orders", headers=purchasing, json=payload).json()
-    assert client.post(
-        f"/purchase-orders/{order['id']}/approve", headers=manager
-    ).status_code == 422
+    assert (
+        client.post(f"/purchase-orders/{order['id']}/approve", headers=manager).status_code == 422
+    )

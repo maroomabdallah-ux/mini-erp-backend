@@ -1,11 +1,18 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 PurchaseOrderStatus = Literal[
-    "draft", "pending_approval", "approved", "rejected", "cancelled", "received"
+    "draft",
+    "pending_approval",
+    "approved",
+    "sent",
+    "rejected",
+    "cancelled",
+    "partially_received",
+    "received",
 ]
 
 
@@ -22,6 +29,8 @@ class PurchaseOrderItemInput(BaseModel):
 
 class PurchaseOrderCreate(BaseModel):
     supplier_id: int = Field(gt=0)
+    warehouse_id: int = Field(gt=0)
+    expected_date: date
     notes: str | None = Field(default=None, max_length=2000)
     items: list[PurchaseOrderItemInput] = Field(min_length=1, max_length=200)
 
@@ -35,6 +44,8 @@ class PurchaseOrderCreate(BaseModel):
         ids = [item.product_id for item in self.items]
         if len(ids) != len(set(ids)):
             raise ValueError("Each product may appear only once in a purchase order.")
+        if self.expected_date < date.today():
+            raise ValueError("Expected date cannot be in the past.")
         return self
 
 
@@ -51,8 +62,13 @@ class PurchaseOrderReason(BaseModel):
         return value.strip()
 
 
+class GoodsReceiptItemInput(BaseModel):
+    purchase_order_item_id: int = Field(gt=0)
+    quantity: int = Field(gt=0)
+
+
 class GoodsReceiptCreate(BaseModel):
-    warehouse_id: int = Field(gt=0)
+    items: list[GoodsReceiptItemInput] = Field(min_length=1, max_length=200)
     notes: str | None = Field(default=None, max_length=500)
 
     @field_validator("notes")
@@ -86,6 +102,7 @@ class PurchaseOrderItemResponse(BaseModel):
     id: int
     product_id: int
     quantity: int
+    received_quantity: int
     unit_cost: Decimal
     line_total: Decimal
     product: ProductSummary
@@ -95,6 +112,7 @@ class PurchaseOrderItemResponse(BaseModel):
 class GoodsReceiptItemResponse(BaseModel):
     id: int
     product_id: int
+    purchase_order_item_id: int
     quantity: int
     product: ProductSummary
     model_config = ConfigDict(from_attributes=True)
@@ -124,6 +142,8 @@ class PurchaseOrderResponse(BaseModel):
     id: int
     number: str
     supplier_id: int
+    warehouse_id: int
+    expected_date: date
     status: PurchaseOrderStatus
     notes: str | None
     total_amount: Decimal
@@ -131,6 +151,7 @@ class PurchaseOrderResponse(BaseModel):
     submitted_at: datetime | None
     approved_by: int | None
     approved_at: datetime | None
+    sent_at: datetime | None
     rejected_by: int | None
     rejected_at: datetime | None
     rejection_reason: str | None
@@ -140,8 +161,10 @@ class PurchaseOrderResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     supplier: SupplierSummary
+    warehouse: WarehouseSummary
     items: list[PurchaseOrderItemResponse]
     receipt: GoodsReceiptResponse | None
+    receipts: list[GoodsReceiptResponse]
     model_config = ConfigDict(from_attributes=True)
 
 

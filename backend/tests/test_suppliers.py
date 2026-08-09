@@ -17,9 +17,7 @@ def clean_test_suppliers():
     yield
     with SessionLocal() as db:
         supplier_ids = list(
-            db.scalars(
-                select(Supplier.id).where(Supplier.name.like("Test Supplier %"))
-            ).all()
+            db.scalars(select(Supplier.id).where(Supplier.name.like("Test Supplier %"))).all()
         )
         if supplier_ids:
             db.execute(
@@ -81,9 +79,7 @@ def test_supplier_crud_search_filter_and_audit() -> None:
     deactivated = client.delete(f"/suppliers/{supplier['id']}", headers=headers)
     assert deactivated.status_code == 200
     assert deactivated.json()["is_active"] is False
-    assert client.delete(
-        f"/suppliers/{supplier['id']}", headers=headers
-    ).status_code == 422
+    assert client.delete(f"/suppliers/{supplier['id']}", headers=headers).status_code == 422
 
     with SessionLocal() as db:
         actions = list(
@@ -110,13 +106,14 @@ def test_purchasing_can_manage_suppliers_and_sales_cannot_access() -> None:
     purchasing_headers = login_headers("purchasing")
     sales_headers = login_headers("sales")
 
-    created = client.post(
-        "/suppliers", headers=purchasing_headers, json=supplier_payload(suffix)
-    )
+    created = client.post("/suppliers", headers=purchasing_headers, json=supplier_payload(suffix))
     assert created.status_code == 201
     assert client.get("/suppliers", headers=purchasing_headers).status_code == 200
 
     assert client.get("/suppliers", headers=sales_headers).status_code == 403
-    assert client.post(
-        "/suppliers", headers=sales_headers, json=supplier_payload(f"S-{suffix}")
-    ).status_code == 403
+    assert (
+        client.post(
+            "/suppliers", headers=sales_headers, json=supplier_payload(f"S-{suffix}")
+        ).status_code
+        == 403
+    )

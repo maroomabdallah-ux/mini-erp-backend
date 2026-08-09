@@ -22,9 +22,7 @@ def clean_test_warehouses():
 
 
 def admin_headers() -> dict[str, str]:
-    response = client.post(
-        "/auth/login", json={"login": "admin", "password": "Passw0rd!"}
-    )
+    response = client.post("/auth/login", json={"login": "admin", "password": "Passw0rd!"})
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
@@ -46,9 +44,7 @@ def test_warehouse_crud_search_and_deactivation() -> None:
     assert warehouse["code"] == payload["code"].upper()
     assert warehouse["is_active"] is True
 
-    fetched = client.get(
-        f"/warehouses/{warehouse['id']}", headers=admin_headers()
-    )
+    fetched = client.get(f"/warehouses/{warehouse['id']}", headers=admin_headers())
     assert fetched.status_code == 200
     assert fetched.json()["id"] == warehouse["id"]
 
@@ -68,24 +64,18 @@ def test_warehouse_crud_search_and_deactivation() -> None:
     assert updated.json()["name"].startswith("Updated")
     assert updated.json()["address"] is None
 
-    deactivated = client.delete(
-        f"/warehouses/{warehouse['id']}", headers=admin_headers()
-    )
+    deactivated = client.delete(f"/warehouses/{warehouse['id']}", headers=admin_headers())
     assert deactivated.status_code == 200
     assert deactivated.json()["is_active"] is False
 
-    repeated = client.delete(
-        f"/warehouses/{warehouse['id']}", headers=admin_headers()
-    )
+    repeated = client.delete(f"/warehouses/{warehouse['id']}", headers=admin_headers())
     assert repeated.status_code == 422
 
 
 def test_duplicate_code_and_invalid_input_are_rejected() -> None:
     suffix = uuid4().hex[:8]
     payload = warehouse_payload(suffix)
-    assert client.post(
-        "/warehouses", headers=admin_headers(), json=payload
-    ).status_code == 201
+    assert client.post("/warehouses", headers=admin_headers(), json=payload).status_code == 201
 
     duplicate = {**warehouse_payload(f"OTHER-{suffix}"), "code": payload["code"].lower()}
     response = client.post("/warehouses", headers=admin_headers(), json=duplicate)
@@ -117,12 +107,11 @@ def test_warehouse_permissions_separate_read_from_manage() -> None:
         },
     )
     assert created.status_code == 201
-    login = client.post(
-        "/auth/login", json={"login": username, "password": "Passw0rd!"}
-    )
+    login = client.post("/auth/login", json={"login": username, "password": "Passw0rd!"})
     headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
 
     assert client.get("/warehouses", headers=headers).status_code == 200
-    assert client.post(
-        "/warehouses", headers=headers, json=warehouse_payload(suffix)
-    ).status_code == 403
+    assert (
+        client.post("/warehouses", headers=headers, json=warehouse_payload(suffix)).status_code
+        == 403
+    )

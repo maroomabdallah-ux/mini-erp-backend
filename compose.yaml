@@ -5,9 +5,9 @@ services:
     restart: unless-stopped
 
     environment:
-      POSTGRES_DB: mini_erp_db
-      POSTGRES_USER: mini_erp_user
-      POSTGRES_PASSWORD: mini_erp_password
+      POSTGRES_DB: ${POSTGRES_DB:-mini_erp_db}
+      POSTGRES_USER: ${POSTGRES_USER:-mini_erp_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the root .env file}
 
     ports:
       - "5434:5432"
@@ -16,7 +16,7 @@ services:
       - mini_erp_postgres_data:/var/lib/postgresql/data
 
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mini_erp_user -d mini_erp_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mini_erp_user} -d ${POSTGRES_DB:-mini_erp_db}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -24,9 +24,9 @@ services:
   api:
     build: ./backend
     container_name: mini-erp-api
-    env_file: ./backend/.env
+    env_file: ./.env
     environment:
-      DATABASE_URL: postgresql+psycopg://mini_erp_user:mini_erp_password@postgres:5432/mini_erp_db
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-mini_erp_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-mini_erp_db}
     ports:
       - "8000:8000"
     volumes:
@@ -34,7 +34,21 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+  backup:
+    image: postgres:16
+    profiles: ["backup"]
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the root .env file}
+    entrypoint: ["/bin/sh", "/backup-loop.sh"]
+    volumes:
+      - ./scripts/backup.sh:/backup.sh:ro
+      - ./scripts/backup-loop.sh:/backup-loop.sh:ro
+      - ./backups:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
   mini_erp_postgres_data:

@@ -5,10 +5,12 @@ from fastapi import APIRouter, Depends, Query, Request, status
 from app.core.dependencies import DatabaseSession, require_permission
 from app.features.billing import service
 from app.features.billing.schemas import (
+    CustomerPaymentCreate,
     InvoiceCreate,
     InvoiceListResponse,
     InvoiceResponse,
     PaymentCreate,
+    PaymentResponse,
     ReasonPayload,
     SalesOrderSummary,
 )
@@ -107,6 +109,16 @@ def record_payment(
     return service.record_payment(db, invoice_id, data, actor_id=actor.id, ip_address=_ip(request))
 
 
+@router.post("/payments", response_model=PaymentResponse, status_code=status.HTTP_201_CREATED)
+def record_customer_payment(
+    data: CustomerPaymentCreate,
+    request: Request,
+    db: DatabaseSession,
+    actor: User = Depends(require_permission("payments.create")),
+):
+    return service.record_customer_payment(db, data, actor_id=actor.id, ip_address=_ip(request))
+
+
 @router.post("/payments/{payment_id}/reverse", response_model=InvoiceResponse)
 def reverse_payment(
     payment_id: int,
@@ -116,5 +128,18 @@ def reverse_payment(
     actor: User = Depends(require_permission("payments.create")),
 ):
     return service.reverse_payment(
+        db, payment_id, data.reason, actor_id=actor.id, ip_address=_ip(request)
+    )
+
+
+@router.post("/customer-payments/{payment_id}/reverse", response_model=PaymentResponse)
+def reverse_customer_payment(
+    payment_id: int,
+    data: ReasonPayload,
+    request: Request,
+    db: DatabaseSession,
+    actor: User = Depends(require_permission("payments.create")),
+):
+    return service.reverse_customer_payment(
         db, payment_id, data.reason, actor_id=actor.id, ip_address=_ip(request)
     )

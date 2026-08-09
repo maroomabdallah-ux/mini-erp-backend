@@ -107,7 +107,18 @@ def list_quotations(
     status: str | None,
     customer_id: int | None,
 ) -> dict:
-    if repository.expire_past_due(db):
+    expired_ids = repository.expire_past_due(db)
+    for quotation_id in expired_ids:
+        add_audit_log(
+            db,
+            user_id=None,
+            action="expire",
+            table_name="quotations",
+            record_id=quotation_id,
+            old_values={"status": "sent"},
+            new_values={"status": "expired", "source": "automatic"},
+        )
+    if expired_ids:
         db.commit()
     return {
         "items": repository.list_quotations(

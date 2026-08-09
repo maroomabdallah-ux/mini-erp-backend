@@ -15,8 +15,9 @@ from app.features.billing.exceptions import (
     InvoiceStateError,
     PaymentNotFoundError,
 )
-from app.features.billing.models import Invoice, InvoiceItem, Payment
-from app.features.billing.schemas import InvoiceCreate, PaymentCreate
+from app.features.billing.models import Invoice, InvoiceItem, Payment, PaymentAllocation
+from app.features.billing.schemas import CustomerPaymentCreate, InvoiceCreate, PaymentCreate
+from app.features.customers.models import Customer
 from app.features.sales import repository as sales_repository
 
 
@@ -299,6 +300,7 @@ def record_payment(
     payment = Payment(
         number=f"PAY-{uuid4().hex[:12].upper()}",
         invoice_id=invoice.id,
+        customer_id=invoice.customer_id,
         amount=data.amount,
         payment_date=data.payment_date,
         method=data.method,
@@ -324,19 +326,6 @@ def record_payment(
     )
     invoice.paid_amount += data.amount
     invoice.status = _status_for(invoice)
-    cash_code = "1000" if payment.method == "cash" else "1100"
-    post_entry(
-        db,
-        entry_date=date.today(),
-        description=f"Reverse customer payment {payment.number}",
-        source_type="customer_payment_reversal",
-        source_id=payment.id,
-        actor_id=actor_id,
-        lines=[
-            ("1200", payment.amount, Decimal("0"), invoice.customer.name),
-            (cash_code, Decimal("0"), payment.amount, invoice.customer.name),
-        ],
-    )
     add_audit_log(
         db,
         user_id=actor_id,
@@ -355,6 +344,88 @@ def record_payment(
     return _get(db, invoice.id)
 
 
+def record_customer_payment(
+    db: Session, data: CustomerPaymentCreate, *, actor_id: int, ip_address: str | None
+) -> Payment:
+    customer = db.get(Customer, data.customer_id)
+    if customer is None or not customer.is_active:
+        raise InvoiceStateError("Customer is unavailable.")
+    if sum((row.amount for row in data.allocations), Decimal("0")) > data.amount:
+        raise InvoiceStateError("Allocated amount cannot exceed the payment amount.")
+    invoice_ids = [row.invoice_id for row in data.allocations]
+    if len(invoice_ids) != len(set(invoice_ids)):
+        raise InvoiceStateError("Each invoice may only be allocated once per payment.")
+    invoices = {}
+    for allocation in sorted(data.allocations, key=lambda row: row.invoice_id):
+        invoice = _get(db, allocation.invoice_id, lock=True)
+        if invoice.customer_id != customer.id or invoice.status not in {"issued", "partially_paid"}:
+            raise InvoiceStateError(
+                "Allocations require an open invoice for the selected customer."
+            )
+        balance = invoice.total_amount - invoice.paid_amount
+        if allocation.amount > balance:
+            raise InvoiceStateError(
+                f"Allocation exceeds {invoice.number}'s balance of {balance:.2f} JOD."
+            )
+        invoices[invoice.id] = invoice
+    payment = Payment(
+        number=f"PAY-{uuid4().hex[:12].upper()}",
+        invoice_id=None,
+        customer_id=customer.id,
+        amount=data.amount,
+        payment_date=data.payment_date,
+        method=data.method,
+        reference=data.reference,
+        notes=data.notes,
+        status="posted",
+        created_by=actor_id,
+        allocations=[
+            PaymentAllocation(invoice_id=row.invoice_id, allocated_amount=row.amount)
+            for row in data.allocations
+        ],
+    )
+    db.add(payment)
+    db.flush()
+    for allocation in data.allocations:
+        invoice = invoices[allocation.invoice_id]
+        invoice.paid_amount += allocation.amount
+        invoice.status = _status_for(invoice)
+    cash_code = "1000" if data.method == "cash" else "1100"
+    post_entry(
+        db,
+        entry_date=data.payment_date,
+        description=f"Customer payment {payment.number}",
+        source_type="customer_payment",
+        source_id=payment.id,
+        actor_id=actor_id,
+        lines=[
+            (cash_code, data.amount, Decimal("0"), customer.name),
+            ("1200", Decimal("0"), data.amount, customer.name),
+        ],
+    )
+    add_audit_log(
+        db,
+        user_id=actor_id,
+        action="payment_post",
+        table_name="payments",
+        record_id=payment.id,
+        ip_address=ip_address,
+        new_values={
+            "customer_id": customer.id,
+            "amount": f"{payment.amount:.2f}",
+            "allocations": [
+                {"invoice_id": row.invoice_id, "amount": f"{row.amount:.2f}"}
+                for row in data.allocations
+            ],
+        },
+    )
+    _commit(db)
+    saved = repository.get_payment(db, payment.id)
+    if saved is None:
+        raise PaymentNotFoundError(payment.id)
+    return saved
+
+
 def reverse_payment(
     db: Session, payment_id: int, reason: str, *, actor_id: int, ip_address: str | None
 ) -> Invoice:
@@ -363,6 +434,8 @@ def reverse_payment(
         raise PaymentNotFoundError(payment_id)
     if payment.status != "posted":
         raise InvoiceStateError("Only posted payments can be reversed.")
+    if payment.invoice_id is None:
+        raise InvoiceStateError("Use the allocated-payment reversal workflow for this receipt.")
     invoice = _get(db, payment.invoice_id, lock=True)
     if invoice.status == "cancelled":
         raise InvoiceStateError("Payments on cancelled invoices cannot be changed.")
@@ -372,6 +445,19 @@ def reverse_payment(
     payment.reversal_reason = reason
     invoice.paid_amount -= payment.amount
     invoice.status = _status_for(invoice)
+    cash_code = "1000" if payment.method == "cash" else "1100"
+    post_entry(
+        db,
+        entry_date=date.today(),
+        description=f"Reverse customer payment {payment.number}",
+        source_type="customer_payment_reversal",
+        source_id=payment.id,
+        actor_id=actor_id,
+        lines=[
+            ("1200", payment.amount, Decimal("0"), invoice.customer.name),
+            (cash_code, Decimal("0"), payment.amount, invoice.customer.name),
+        ],
+    )
     add_audit_log(
         db,
         user_id=actor_id,
@@ -384,3 +470,60 @@ def reverse_payment(
     )
     _commit(db)
     return _get(db, invoice.id)
+
+
+def reverse_customer_payment(
+    db: Session, payment_id: int, reason: str, *, actor_id: int, ip_address: str | None
+) -> Payment:
+    payment = repository.get_payment(db, payment_id, lock=True)
+    if payment is None:
+        raise PaymentNotFoundError(payment_id)
+    if payment.status != "posted":
+        raise InvoiceStateError("Only posted payments can be reversed.")
+    if payment.invoice_id is not None:
+        raise InvoiceStateError("Use the invoice payment reversal action for this payment.")
+
+    customer = db.get(Customer, payment.customer_id)
+    if customer is None:
+        raise InvoiceStateError("Payment customer is unavailable.")
+    for allocation in sorted(payment.allocations, key=lambda row: row.invoice_id):
+        invoice = _get(db, allocation.invoice_id, lock=True)
+        if invoice.status == "cancelled":
+            raise InvoiceStateError("Payments on cancelled invoices cannot be changed.")
+        if invoice.paid_amount < allocation.allocated_amount:
+            raise InvoiceStateError("Invoice payment history is inconsistent.")
+        invoice.paid_amount -= allocation.allocated_amount
+        invoice.status = _status_for(invoice)
+
+    payment.status = "reversed"
+    payment.reversed_by = actor_id
+    payment.reversed_at = _now()
+    payment.reversal_reason = reason
+    cash_code = "1000" if payment.method == "cash" else "1100"
+    post_entry(
+        db,
+        entry_date=date.today(),
+        description=f"Reverse customer payment {payment.number}",
+        source_type="customer_payment_reversal",
+        source_id=payment.id,
+        actor_id=actor_id,
+        lines=[
+            ("1200", payment.amount, Decimal("0"), customer.name),
+            (cash_code, Decimal("0"), payment.amount, customer.name),
+        ],
+    )
+    add_audit_log(
+        db,
+        user_id=actor_id,
+        action="payment_reverse",
+        table_name="payments",
+        record_id=payment.id,
+        ip_address=ip_address,
+        old_values={"status": "posted"},
+        new_values={"status": "reversed", "reason": reason},
+    )
+    _commit(db)
+    saved = repository.get_payment(db, payment.id)
+    if saved is None:
+        raise PaymentNotFoundError(payment.id)
+    return saved

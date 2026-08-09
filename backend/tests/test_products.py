@@ -14,11 +14,7 @@ client = TestClient(app)
 
 def remove_test_data() -> None:
     with SessionLocal() as db:
-        db.execute(
-            delete(Product).where(
-                or_(Product.sku.like("SKU-%"), Product.sku.like("CSV-%"))
-            )
-        )
+        db.execute(delete(Product).where(or_(Product.sku.like("SKU-%"), Product.sku.like("CSV-%"))))
         db.execute(delete(Category).where(Category.name.like("Child %")))
         db.execute(
             delete(Category).where(
@@ -40,9 +36,7 @@ def clean_product_test_data():
 
 
 def admin_headers() -> dict[str, str]:
-    response = client.post(
-        "/auth/login", json={"login": "admin", "password": "Passw0rd!"}
-    )
+    response = client.post("/auth/login", json={"login": "admin", "password": "Passw0rd!"})
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
@@ -111,20 +105,14 @@ def test_product_crud_search_and_deactivation() -> None:
     assert updated.json()["name"].startswith("Updated")
     assert updated.json()["barcode"] is None
 
-    blocked_category = client.delete(
-        f"/categories/{category['id']}", headers=admin_headers()
-    )
+    blocked_category = client.delete(f"/categories/{category['id']}", headers=admin_headers())
     assert blocked_category.status_code == 422
 
-    deactivated = client.delete(
-        f"/products/{product['id']}", headers=admin_headers()
-    )
+    deactivated = client.delete(f"/products/{product['id']}", headers=admin_headers())
     assert deactivated.status_code == 200
     assert deactivated.json()["is_active"] is False
 
-    category_deactivated = client.delete(
-        f"/categories/{category['id']}", headers=admin_headers()
-    )
+    category_deactivated = client.delete(f"/categories/{category['id']}", headers=admin_headers())
     assert category_deactivated.status_code == 200
     assert category_deactivated.json()["is_active"] is False
 
@@ -168,15 +156,16 @@ def test_products_permissions_separate_read_from_manage() -> None:
         },
     )
     assert created.status_code == 201
-    login = client.post(
-        "/auth/login", json={"login": username, "password": "Passw0rd!"}
-    )
+    login = client.post("/auth/login", json={"login": username, "password": "Passw0rd!"})
     headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
 
     assert client.get("/products", headers=headers).status_code == 200
-    assert client.post(
-        "/products", headers=headers, json=product_payload(f"forbidden-{suffix}")
-    ).status_code == 403
+    assert (
+        client.post(
+            "/products", headers=headers, json=product_payload(f"forbidden-{suffix}")
+        ).status_code
+        == 403
+    )
 
 
 def test_csv_import_creates_valid_rows_and_reports_invalid_rows() -> None:
@@ -197,8 +186,6 @@ def test_csv_import_creates_valid_rows_and_reports_invalid_rows() -> None:
     assert body["error_count"] == 1
     assert body["errors"][0]["row"] == 3
 
-    listed = client.get(
-        f"/products?search=CSV-{suffix}", headers=admin_headers()
-    )
+    listed = client.get(f"/products?search=CSV-{suffix}", headers=admin_headers())
     assert listed.status_code == 200
     assert listed.json()["total"] == 1

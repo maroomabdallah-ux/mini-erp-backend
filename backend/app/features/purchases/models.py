@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
@@ -22,8 +22,8 @@ class PurchaseOrder(Base):
     __table_args__ = (
         UniqueConstraint("number", name="uq_purchase_orders_number"),
         CheckConstraint(
-            "status IN ('draft', 'pending_approval', 'approved', "
-            "'rejected', 'cancelled', 'received')",
+            "status IN ('draft', 'pending_approval', 'approved', 'sent', "
+            "'rejected', 'cancelled', 'partially_received', 'received')",
             name="ck_purchase_orders_status",
         ),
         CheckConstraint("total_amount >= 0", name="ck_purchase_orders_total_nonnegative"),
@@ -34,6 +34,10 @@ class PurchaseOrder(Base):
     supplier_id: Mapped[int] = mapped_column(
         ForeignKey("suppliers.id", ondelete="RESTRICT"), index=True
     )
+    warehouse_id: Mapped[int] = mapped_column(
+        ForeignKey("warehouses.id", ondelete="RESTRICT"), index=True
+    )
+    expected_date: Mapped[date] = mapped_column(index=True)
     status: Mapped[str] = mapped_column(String(30), default="draft", index=True)
     notes: Mapped[str | None] = mapped_column(Text)
     total_amount: Mapped[Decimal] = mapped_column(
@@ -43,6 +47,7 @@ class PurchaseOrder(Base):
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     approved_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"))
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     rejected_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"))
     rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     rejection_reason: Mapped[str | None] = mapped_column(String(500))
@@ -55,14 +60,19 @@ class PurchaseOrder(Base):
     )
 
     supplier = relationship("Supplier")
+    warehouse = relationship("Warehouse")
     items: Mapped[list["PurchaseOrderItem"]] = relationship(
         back_populates="purchase_order",
         cascade="all, delete-orphan",
         order_by="PurchaseOrderItem.id",
     )
-    receipt: Mapped["GoodsReceipt | None"] = relationship(
-        back_populates="purchase_order", uselist=False
+    receipts: Mapped[list["GoodsReceipt"]] = relationship(
+        back_populates="purchase_order", order_by="GoodsReceipt.received_at, GoodsReceipt.id"
     )
+
+    @property
+    def receipt(self) -> "GoodsReceipt | None":
+        return self.receipts[-1] if self.receipts else None
 
 
 class PurchaseOrderItem(Base):
@@ -82,6 +92,7 @@ class PurchaseOrderItem(Base):
         ForeignKey("products.id", ondelete="RESTRICT"), index=True
     )
     quantity: Mapped[int] = mapped_column(Integer)
+    received_quantity: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     unit_cost: Mapped[Decimal] = mapped_column(Numeric(12, 2))
     line_total: Mapped[Decimal] = mapped_column(Numeric(14, 2))
 
@@ -91,10 +102,7 @@ class PurchaseOrderItem(Base):
 
 class GoodsReceipt(Base):
     __tablename__ = "goods_receipts"
-    __table_args__ = (
-        UniqueConstraint("number", name="uq_goods_receipts_number"),
-        UniqueConstraint("purchase_order_id", name="uq_goods_receipts_purchase_order_id"),
-    )
+    __table_args__ = (UniqueConstraint("number", name="uq_goods_receipts_number"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     number: Mapped[str] = mapped_column(String(30), index=True)
@@ -110,7 +118,7 @@ class GoodsReceipt(Base):
         DateTime(timezone=True), server_default=func.now(), index=True
     )
 
-    purchase_order: Mapped[PurchaseOrder] = relationship(back_populates="receipt")
+    purchase_order: Mapped[PurchaseOrder] = relationship(back_populates="receipts")
     warehouse = relationship("Warehouse")
     items: Mapped[list["GoodsReceiptItem"]] = relationship(
         back_populates="goods_receipt", cascade="all, delete-orphan"
@@ -130,6 +138,9 @@ class GoodsReceiptItem(Base):
     )
     product_id: Mapped[int] = mapped_column(
         ForeignKey("products.id", ondelete="RESTRICT"), index=True
+    )
+    purchase_order_item_id: Mapped[int] = mapped_column(
+        ForeignKey("purchase_order_items.id", ondelete="RESTRICT"), index=True
     )
     quantity: Mapped[int] = mapped_column(Integer)
 

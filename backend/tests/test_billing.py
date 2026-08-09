@@ -8,7 +8,7 @@ from sqlalchemy import delete, select
 
 from app.db.session import SessionLocal
 from app.features.audit.model import AuditLog
-from app.features.billing.models import Invoice, InvoiceItem, Payment
+from app.features.billing.models import Invoice, InvoiceItem, Payment, PaymentAllocation
 from app.features.customers.models import Customer
 from app.features.products.models import Product
 from app.features.quotations.models import Quotation, QuotationItem
@@ -46,7 +46,15 @@ def cleanup():
         )
         if invoice_ids:
             payment_ids = list(
-                db.scalars(select(Payment.id).where(Payment.invoice_id.in_(invoice_ids))).all()
+                db.scalars(
+                    select(Payment.id)
+                    .outerjoin(PaymentAllocation, PaymentAllocation.payment_id == Payment.id)
+                    .where(
+                        (Payment.invoice_id.in_(invoice_ids))
+                        | (PaymentAllocation.invoice_id.in_(invoice_ids))
+                    )
+                    .distinct()
+                ).all()
             )
             if payment_ids:
                 db.execute(
@@ -55,7 +63,7 @@ def cleanup():
                         AuditLog.record_id.in_([str(value) for value in payment_ids]),
                     )
                 )
-            db.execute(delete(Payment).where(Payment.invoice_id.in_(invoice_ids)))
+                db.execute(delete(Payment).where(Payment.id.in_(payment_ids)))
             db.execute(delete(InvoiceItem).where(InvoiceItem.invoice_id.in_(invoice_ids)))
             db.execute(
                 delete(AuditLog).where(
@@ -191,9 +199,12 @@ def test_invoice_issue_partial_and_full_payment_with_reversal() -> None:
     )
     assert partial.status_code == 201
     assert partial.json()["status"] == "partially_paid" and partial.json()["balance_due"] == "65.00"
-    timeline = client.get(
-        f"/invoices/{invoice['id']}/accounting-timeline", headers=accountant
+    payment_id = partial.json()["payments"][0]["id"]
+    premature_reversal = client.get(
+        "/journal-entries?source_type=customer_payment_reversal", headers=accountant
     )
+    assert all(row["source_id"] != payment_id for row in premature_reversal.json()["items"])
+    timeline = client.get(f"/invoices/{invoice['id']}/accounting-timeline", headers=accountant)
     assert timeline.status_code == 200
     assert {event["key"] for event in timeline.json()} >= {
         "invoice_created",
@@ -253,3 +264,44 @@ def test_billing_rbac_and_cancellation() -> None:
     credit_note = next(item for item in listed if item["document_type"] == "credit_note")
     assert credit_note["reversed_invoice_id"] == invoice["id"]
     assert credit_note["status"] == "issued"
+
+
+def test_customer_payment_allocation_and_reversal() -> None:
+    suffix = uuid4().hex[:8]
+    order_id = delivered_order(suffix)
+    sales = headers("sales")
+    accountant = headers("accountant")
+    invoice = client.post(
+        "/invoices",
+        headers=sales,
+        json={"sales_order_id": order_id, "notes": f"Test billing {suffix}"},
+    ).json()
+    issued = client.post(f"/invoices/{invoice['id']}/issue", headers=sales).json()
+
+    receipt = client.post(
+        "/payments",
+        headers=accountant,
+        json={
+            "customer_id": issued["customer_id"],
+            "amount": "75.00",
+            "payment_date": str(date.today()),
+            "method": "bank_transfer",
+            "reference": "MULTI-TEST",
+            "allocations": [{"invoice_id": invoice["id"], "amount": "60.00"}],
+        },
+    )
+    assert receipt.status_code == 201
+    assert receipt.json()["invoice_id"] is None
+    assert receipt.json()["allocations"][0]["allocated_amount"] == "60.00"
+    updated = client.get(f"/invoices/{invoice['id']}", headers=accountant).json()
+    assert updated["paid_amount"] == "60.00" and updated["balance_due"] == "40.00"
+
+    reversed_receipt = client.post(
+        f"/customer-payments/{receipt.json()['id']}/reverse",
+        headers=accountant,
+        json={"reason": "Incorrect allocation"},
+    )
+    assert reversed_receipt.status_code == 200
+    assert reversed_receipt.json()["status"] == "reversed"
+    restored = client.get(f"/invoices/{invoice['id']}", headers=accountant).json()
+    assert restored["paid_amount"] == "0.00" and restored["status"] == "issued"

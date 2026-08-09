@@ -1,5 +1,6 @@
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from typing import cast
 from uuid import uuid4
 
 from sqlalchemy import func, select
@@ -137,6 +138,12 @@ def post_entry(
     credit = sum((line[2] for line in lines), Decimal("0"))
     if debit <= 0 or debit != credit:
         raise AccountingRuleError("Journal entry debits and credits must be equal and positive.")
+    accounts: dict[str, Account] = {}
+    for code, *_ in lines:
+        account = repository.get_account_by_code(db, code)
+        if account is None:
+            raise AccountingRuleError(f"System account {code} is unavailable.")
+        accounts[code] = account
     entry = JournalEntry(
         number=f"JE-{datetime.now(UTC):%Y%m%d}-{uuid4().hex[:8].upper()}",
         entry_date=entry_date,
@@ -146,7 +153,7 @@ def post_entry(
         created_by=actor_id,
         lines=[
             JournalEntryLine(
-                account_id=repository.get_account_by_code(db, code).id,
+                account_id=accounts[code].id,
                 debit=debit_amount,
                 credit=credit_amount,
                 memo=memo,
@@ -159,7 +166,7 @@ def post_entry(
     return entry
 
 
-def create_manual_entry(db: Session, data: JournalEntryCreate, *, actor_id: int) -> JournalEntry:
+def create_manual_entry(db: Session, data: JournalEntryCreate, *, actor_id: int) -> dict:
     for line in data.lines:
         account = repository.get_account(db, line.account_id)
         if account is None or not account.is_active:
@@ -282,6 +289,8 @@ def accounting_dashboard(db: Session) -> dict:
             statement = statement.where(JournalEntry.entry_date >= date_from)
         debit, credit = db.execute(statement).one()
         account = repository.get_account_by_code(db, code)
+        if account is None:
+            raise AccountingRuleError(f"System account {code} is unavailable.")
         return (
             Decimal(credit) - Decimal(debit)
             if account.type in {"liability", "equity", "revenue"}
@@ -434,7 +443,7 @@ def record_supplier_payment(
     )
     db.commit()
     db.refresh(payment)
-    return payment
+    return cast(SupplierPayment, payment)
 
 
 def reverse_supplier_payment(
@@ -464,7 +473,7 @@ def reverse_supplier_payment(
     )
     db.commit()
     db.refresh(payment)
-    return payment
+    return cast(SupplierPayment, payment)
 
 
 def _statement(records, *, entity_id: int, entity_name: str, date_from: date, date_to: date):
@@ -534,17 +543,23 @@ def customer_statement(db: Session, customer_id: int, date_from: date, date_to: 
                     Decimal("0"),
                 )
             )
-        for payment in invoice.payments:
-            if payment.status == "posted" and payment.payment_date <= date_to:
-                records.append(
-                    (
-                        payment.payment_date,
-                        payment.number,
-                        "Customer payment",
-                        Decimal("0"),
-                        payment.amount,
-                    )
-                )
+    payments = db.scalars(
+        select(Payment).where(
+            Payment.customer_id == customer_id,
+            Payment.status == "posted",
+            Payment.payment_date <= date_to,
+        )
+    ).all()
+    for payment in payments:
+        records.append(
+            (
+                payment.payment_date,
+                payment.number,
+                "Customer payment",
+                Decimal("0"),
+                payment.amount,
+            )
+        )
     return _statement(
         records,
         entity_id=customer.id,

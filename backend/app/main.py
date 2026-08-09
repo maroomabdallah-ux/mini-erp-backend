@@ -1,6 +1,7 @@
 # app/main.py
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -22,6 +23,25 @@ app.add_middleware(
 )
 
 app.include_router(api_router)
+
+
+@app.exception_handler(RequestValidationError)
+async def handle_validation_error(
+    request: Request,
+    exc: RequestValidationError,
+) -> JSONResponse:
+    fields = {
+        ".".join(str(part) for part in error["loc"] if part != "body"): error["msg"]
+        for error in exc.errors()
+    }
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": "Request validation failed.",
+            "code": "VALIDATION_ERROR",
+            "field_errors": fields,
+        },
+    )
 
 
 @app.exception_handler(AppError)

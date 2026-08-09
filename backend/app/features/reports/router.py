@@ -35,9 +35,10 @@ def profit(
     db: DatabaseSession,
     date_from: date = Query(default_factory=_default_from),
     date_to: date = Query(default_factory=date.today),
+    category_id: int | None = Query(None, gt=0),
     actor: User = Depends(require_permission("reports.profit.read")),
 ):
-    return service.profit(db, date_from, date_to)
+    return service.profit(db, date_from, date_to, category_id)
 
 
 @router.get("/top-products", response_model=list[TopProductRow])
@@ -46,9 +47,10 @@ def top_products(
     date_from: date = Query(default_factory=_default_from),
     date_to: date = Query(default_factory=date.today),
     limit: int = Query(10, ge=1, le=100),
+    sort_by: str = Query("revenue", pattern="^(revenue|quantity)$"),
     actor: User = Depends(require_permission("reports.top_products.read")),
 ):
-    return service.top_products(db, date_from, date_to, limit)
+    return service.top_products(db, date_from, date_to, limit, sort_by)
 
 
 @router.get("/inventory-valuation", response_model=InventoryValuationReport)

@@ -76,10 +76,15 @@ def count_quotations(
     )
 
 
-def expire_past_due(db: Session) -> int:
-    result = db.execute(
-        update(Quotation)
-        .where(Quotation.status == "sent", Quotation.valid_until < date.today())
-        .values(status="expired")
+def expire_past_due(db: Session) -> list[int]:
+    ids = list(
+        db.scalars(
+            select(Quotation.id).where(
+                Quotation.status == "sent", Quotation.valid_until < date.today()
+            )
+        ).all()
     )
-    return result.rowcount or 0
+    if not ids:
+        return []
+    db.execute(update(Quotation).where(Quotation.id.in_(ids)).values(status="expired"))
+    return ids
