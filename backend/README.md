@@ -2,7 +2,25 @@
 
 Backend service built with FastAPI, SQLAlchemy 2.0, PostgreSQL, Alembic, JWT authentication, and role-based access control (RBAC).
 
-The completed scope includes authentication, users, roles, permissions, audit logging, products and categories, suppliers, warehouses, inventory operations, physical counts, purchase orders, goods receipts, customers, and sales quotations.
+The completed scope includes authentication, RBAC, audit logging, master data, procurement, inventory, quotations, sales orders, billing, payments, double-entry accounting, statements, management dashboards, and operational and financial reports.
+
+## Project Status
+
+The backend functional scope is complete. Automated journals retain links to their source documents, system accounts are protected, financial reversals are immutable, and past-due sent quotations expire automatically when the quotation register is read.
+
+Reporting endpoints:
+
+```text
+GET /reports/dashboard
+GET /reports/profit
+GET /reports/top-products
+GET /reports/inventory-valuation
+GET /reports/receivables-aging
+GET /reports/monthly-sales
+GET /reports/stock-movements
+```
+
+Each endpoint enforces the corresponding `reports.*.read` permission from the SRS role matrix.
 
 ## 1. Run the Project
 

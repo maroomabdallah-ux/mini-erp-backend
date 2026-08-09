@@ -107,6 +107,8 @@ def list_quotations(
     status: str | None,
     customer_id: int | None,
 ) -> dict:
+    if repository.expire_past_due(db):
+        db.commit()
     return {
         "items": repository.list_quotations(
             db,

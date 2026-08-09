@@ -2,7 +2,13 @@
 
 Backend service built with FastAPI, SQLAlchemy 2.0, PostgreSQL, Alembic, JWT authentication, and role-based access control (RBAC).
 
-The completed scope includes authentication, users, roles, permissions, audit logging, products and categories, suppliers, warehouses, inventory operations, physical counts, purchase orders, goods receipts, customers, and sales quotations.
+The completed scope includes authentication, RBAC, audit logging, master data, procurement, inventory, quotations, sales orders, billing, payments, double-entry accounting, statements, management dashboards, and operational and financial reports.
+
+## Project Status
+
+The Mini ERP functional scope is complete. All core documents are connected from quotation through sales, delivery, invoicing, collection, journal posting, purchasing, receiving, supplier payment, inventory, and reporting. Financial records preserve source-document traceability and reversal history.
+
+The final reporting suite provides profit, monthly sales, top-selling products, inventory valuation, receivables aging, and a running stock-movement ledger. The management dashboard also highlights overdue invoices, low stock, pending purchase approvals, and quotations approaching expiration.
 
 ## 1. Run the Project
 

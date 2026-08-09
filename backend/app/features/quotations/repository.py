@@ -1,6 +1,7 @@
+from datetime import date
 from typing import cast
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from app.features.customers.models import Customer
@@ -73,3 +74,12 @@ def count_quotations(
         )
         or 0
     )
+
+
+def expire_past_due(db: Session) -> int:
+    result = db.execute(
+        update(Quotation)
+        .where(Quotation.status == "sent", Quotation.valid_until < date.today())
+        .values(status="expired")
+    )
+    return result.rowcount or 0
