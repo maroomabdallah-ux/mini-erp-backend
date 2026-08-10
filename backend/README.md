@@ -42,6 +42,12 @@ From the project root directory, start PostgreSQL and the API:
 
 ```bash
 docker compose up -d postgres api
+
+
+cd /Users/apple/miniERPsystem
+source .venv/bin/activate
+cd backend
+uvicorn app.main:app --reload
 ```
 
 For direct local development, keep configuration in the root `.env` file. Its
