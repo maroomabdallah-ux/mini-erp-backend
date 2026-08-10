@@ -26,6 +26,17 @@ From the project root directory, start PostgreSQL and the API:
 docker compose up -d postgres api
 ```
 
+Alternatively, run PostgreSQL with Docker and start the API directly from the
+local virtual environment:
+
+```bash
+cd /Users/apple/miniERPsystem
+docker compose up -d postgres
+source .venv/bin/activate
+cd backend
+uvicorn app.main:app --reload
+```
+
 Apply all database migrations:
 
 ```bash
