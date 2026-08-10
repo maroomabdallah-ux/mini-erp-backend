@@ -1,5 +1,7 @@
 # Mini ERP Backend
 
+![Mini ERP full process workflow](docs/screenshots/mini-erp-workflow.png)
+
 Backend service built with FastAPI, SQLAlchemy 2.0, PostgreSQL, Alembic, JWT authentication, and role-based access control (RBAC).
 
 The completed scope includes authentication, RBAC, audit logging, master data, procurement, inventory, quotations, sales orders, billing, payments, double-entry accounting, statements, management dashboards, and operational and financial reports.
