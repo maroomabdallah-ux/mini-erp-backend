@@ -3,7 +3,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -30,6 +30,13 @@ class Settings(BaseSettings):
     )
     login_max_attempts: int = 5
     login_window_minutes: int = 15
+
+    @field_validator("jwt_secret")
+    @classmethod
+    def reject_placeholder_jwt_secret(cls, value: str) -> str:
+        if value == "replace-with-a-long-random-secret-at-least-32-characters":
+            raise ValueError("JWT_SECRET must be replaced with a private random value.")
+        return value
 
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",

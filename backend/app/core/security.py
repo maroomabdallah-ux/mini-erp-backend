@@ -5,8 +5,9 @@ import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
-from jose import JWTError, jwt
+import jwt
 from passlib.context import CryptContext
+from jwt import InvalidTokenError
 
 from app.core.config import settings
 
@@ -99,5 +100,5 @@ def decode_token(token: str) -> dict[str, Any]:
             ),
         )
 
-    except JWTError as exc:
+    except InvalidTokenError as exc:
         raise ValueError("Invalid or expired token.") from exc

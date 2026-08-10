@@ -5,7 +5,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.exceptions import ForbiddenError, UnauthorizedError
+from app.core.exceptions import UnauthorizedError
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -36,6 +36,12 @@ def _record_failure(db: Session, ip_address: str) -> None:
 
 
 def _issue_tokens(db: Session, user: User) -> tuple[str, str]:
+    now = datetime.now(UTC)
+    db.execute(
+        delete(RefreshToken).where(
+            (RefreshToken.expires_at <= now) | (RefreshToken.revoked_at.is_not(None))
+        )
+    )
     access_token = create_access_token(user.id)
     refresh_token, token_id, expires_at = create_refresh_token(user.id)
     repository.add_refresh_token(
@@ -56,7 +62,7 @@ def login(db: Session, login_value: str, password: str, ip_address: str) -> tupl
         _record_failure(db, ip_address)
         raise UnauthorizedError("Invalid username/email or password.")
     if not user.is_active:
-        raise ForbiddenError("This account is deactivated.")
+        raise UnauthorizedError("Invalid username/email or password.")
     db.execute(delete(LoginAttempt).where(LoginAttempt.ip_address == ip_address))
     access_token, refresh_token = _issue_tokens(db, user)
     add_audit_log(
