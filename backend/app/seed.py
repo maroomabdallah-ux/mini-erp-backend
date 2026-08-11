@@ -490,7 +490,8 @@ def seed_reporting_history(db, *, admin_id: int) -> int:
                 actor_id=admin_id,
                 lines=[
                     ("1200", total, Decimal("0"), customer.name),
-                    ("4000", Decimal("0"), total, customer.name),
+                    ("4000", Decimal("0"), subtotal, customer.name),
+                    ("2100", Decimal("0"), tax, customer.name),
                 ],
             )
             if paid_amount > 0:

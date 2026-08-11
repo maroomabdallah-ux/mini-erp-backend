@@ -5,8 +5,10 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import delete, select
+from sqlalchemy.orm import selectinload
 
 from app.db.session import SessionLocal
+from app.features.accounting.models import JournalEntry, JournalEntryLine
 from app.features.audit.model import AuditLog
 from app.features.billing.models import Invoice, InvoiceItem, Payment, PaymentAllocation
 from app.features.customers.models import Customer
@@ -26,8 +28,15 @@ def cleanup():
         invoices = list(
             db.scalars(select(Invoice).where(Invoice.notes.like("Test billing %"))).all()
         )
+        original_invoice_ids = [item.id for item in invoices]
+        if original_invoice_ids:
+            invoices.extend(
+                db.scalars(
+                    select(Invoice).where(Invoice.reversed_invoice_id.in_(original_invoice_ids))
+                ).all()
+            )
         invoice_ids = [item.id for item in invoices]
-        order_ids = [item.sales_order_id for item in invoices]
+        order_ids = [item.sales_order_id for item in invoices if item.sales_order_id is not None]
         orders = (
             list(db.scalars(select(SalesOrder).where(SalesOrder.id.in_(order_ids))).all())
             if order_ids
@@ -64,11 +73,39 @@ def cleanup():
                     )
                 )
                 db.execute(delete(Payment).where(Payment.id.in_(payment_ids)))
+            journal_ids = list(
+                db.scalars(
+                    select(JournalEntry.id).where(
+                        (
+                            JournalEntry.source_type.in_(["sales_invoice", "credit_note"])
+                            & JournalEntry.source_id.in_(invoice_ids)
+                        )
+                        | (
+                            JournalEntry.source_type.in_(
+                                ["customer_payment", "customer_payment_reversal"]
+                            )
+                            & JournalEntry.source_id.in_(payment_ids)
+                        )
+                    )
+                ).all()
+            )
+            if journal_ids:
+                db.execute(
+                    delete(JournalEntryLine).where(
+                        JournalEntryLine.journal_entry_id.in_(journal_ids)
+                    )
+                )
+                db.execute(delete(JournalEntry).where(JournalEntry.id.in_(journal_ids)))
             db.execute(delete(InvoiceItem).where(InvoiceItem.invoice_id.in_(invoice_ids)))
             db.execute(
                 delete(AuditLog).where(
                     AuditLog.table_name == "invoices",
                     AuditLog.record_id.in_([str(value) for value in invoice_ids]),
+                )
+            )
+            db.execute(
+                delete(Invoice).where(
+                    Invoice.id.in_(invoice_ids), Invoice.document_type == "credit_note"
                 )
             )
             db.execute(delete(Invoice).where(Invoice.id.in_(invoice_ids)))
@@ -264,6 +301,56 @@ def test_billing_rbac_and_cancellation() -> None:
     credit_note = next(item for item in listed if item["document_type"] == "credit_note")
     assert credit_note["reversed_invoice_id"] == invoice["id"]
     assert credit_note["status"] == "issued"
+
+
+def test_tax_is_separate_from_revenue_and_cancellation_nets_to_zero() -> None:
+    suffix = uuid4().hex[:8]
+    order_id = delivered_order(suffix)
+    with SessionLocal() as db:
+        order = db.get(SalesOrder, order_id)
+        assert order is not None
+        order.discount_amount = Decimal("10.00")
+        order.tax_amount = Decimal("14.40")
+        order.total_amount = Decimal("104.40")
+        db.commit()
+
+    sales = headers("sales")
+    accountant = headers("accountant")
+    before = client.get("/reports/profit", headers=accountant).json()
+    invoice = client.post(
+        "/invoices",
+        headers=sales,
+        json={"sales_order_id": order_id, "notes": f"Test billing {suffix}"},
+    ).json()
+    assert client.post(f"/invoices/{invoice['id']}/issue", headers=sales).status_code == 200
+
+    with SessionLocal() as db:
+        entry = db.scalar(
+            select(JournalEntry)
+            .options(selectinload(JournalEntry.lines).selectinload(JournalEntryLine.account))
+            .where(
+                JournalEntry.source_type == "sales_invoice",
+                JournalEntry.source_id == invoice["id"],
+            )
+        )
+        assert entry is not None
+        amounts = {line.account.code: (line.debit, line.credit) for line in entry.lines}
+        assert amounts["1200"] == (Decimal("104.40"), Decimal("0.00"))
+        assert amounts["4000"] == (Decimal("0.00"), Decimal("90.00"))
+        assert amounts["2100"] == (Decimal("0.00"), Decimal("14.40"))
+
+    after_issue = client.get("/reports/profit", headers=accountant).json()
+    assert Decimal(after_issue["revenue"]) - Decimal(before["revenue"]) == Decimal("90.00")
+
+    cancelled = client.post(
+        f"/invoices/{invoice['id']}/cancel",
+        headers=accountant,
+        json={"reason": f"Test tax reversal {suffix}"},
+    )
+    assert cancelled.status_code == 200
+    after_cancel = client.get("/reports/profit", headers=accountant).json()
+    assert Decimal(after_cancel["revenue"]) == Decimal(before["revenue"])
+    assert Decimal(after_cancel["gross_profit"]) == Decimal(before["gross_profit"])
 
 
 def test_customer_payment_allocation_and_reversal() -> None:

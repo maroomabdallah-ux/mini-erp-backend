@@ -26,7 +26,7 @@ def _invoices(db: Session, date_from: date, date_to: date) -> list[Invoice]:
             .where(
                 Invoice.issue_date >= date_from,
                 Invoice.issue_date <= date_to,
-                Invoice.status != "cancelled",
+                Invoice.status != "draft",
             )
         ).all()
     )
@@ -42,7 +42,13 @@ def profit(db: Session, date_from: date, date_to: date, category_id: int | None 
             for item in invoice.items
             if category_id is None or item.product.category_id == category_id
         ]
-        revenue += sign * sum((item.line_total for item in selected), Decimal("0"))
+        item_total = sum((item.line_total for item in invoice.items), Decimal("0"))
+        selected_total = sum((item.line_total for item in selected), Decimal("0"))
+        net_invoice_sales = invoice.total_amount - invoice.tax_amount
+        selected_sales = (
+            net_invoice_sales * selected_total / item_total if item_total else Decimal("0")
+        )
+        revenue += sign * selected_sales
         cogs += sign * sum(
             (Decimal(item.quantity) * item.product.cost_price for item in selected),
             Decimal("0"),
@@ -65,6 +71,8 @@ def top_products(
     totals: dict[int, dict] = {}
     for invoice in _invoices(db, date_from, date_to):
         sign = -1 if invoice.document_type == "credit_note" else 1
+        item_total = sum((item.line_total for item in invoice.items), Decimal("0"))
+        net_invoice_sales = invoice.total_amount - invoice.tax_amount
         for item in invoice.items:
             row = totals.setdefault(
                 item.product_id,
@@ -77,7 +85,12 @@ def top_products(
                 },
             )
             row["quantity_sold"] += sign * item.quantity
-            row["net_sales"] += sign * item.line_total
+            item_net_sales = (
+                net_invoice_sales * item.line_total / item_total
+                if item_total
+                else Decimal("0")
+            )
+            row["net_sales"] += sign * item_net_sales
     key = "quantity_sold" if sort_by == "quantity" else "net_sales"
     return sorted(totals.values(), key=lambda row: row[key], reverse=True)[:limit]
 
@@ -172,11 +185,8 @@ def monthly_sales(db: Session, months: int) -> list[dict]:
     for invoice in invoices:
         key = invoice.issue_date.strftime("%Y-%m")
         totals[key]["invoice_count"] += 1
-        amount = (
-            -invoice.total_amount
-            if invoice.document_type == "credit_note"
-            else invoice.total_amount
-        )
+        net_sales = invoice.total_amount - invoice.tax_amount
+        amount = -net_sales if invoice.document_type == "credit_note" else net_sales
         totals[key]["net_sales"] += amount
     keys = []
     cursor = today.replace(day=1)

@@ -160,8 +160,17 @@ def issue_invoice(
     )
     journal_lines = [
         ("1200", invoice.total_amount, Decimal("0"), invoice.customer.name),
-        ("4000", Decimal("0"), invoice.total_amount, invoice.customer.name),
+        (
+            "4000",
+            Decimal("0"),
+            invoice.total_amount - invoice.tax_amount,
+            invoice.customer.name,
+        ),
     ]
+    if invoice.tax_amount > 0:
+        journal_lines.append(
+            ("2100", Decimal("0"), invoice.tax_amount, invoice.customer.name)
+        )
     if cogs > 0:
         journal_lines.extend(
             [
@@ -259,7 +268,17 @@ def cancel_invoice(
         source_id=credit_note.id,
         actor_id=actor_id,
         lines=[
-            ("4000", invoice.total_amount, Decimal("0"), invoice.customer.name),
+            (
+                "4000",
+                invoice.total_amount - invoice.tax_amount,
+                Decimal("0"),
+                invoice.customer.name,
+            ),
+            *(
+                [("2100", invoice.tax_amount, Decimal("0"), invoice.customer.name)]
+                if invoice.tax_amount > 0
+                else []
+            ),
             ("1200", Decimal("0"), invoice.total_amount, invoice.customer.name),
         ],
     )

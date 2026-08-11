@@ -36,6 +36,7 @@ SYSTEM_ACCOUNTS = {
     "1200": ("Accounts Receivable", "asset"),
     "1300": ("Inventory", "asset"),
     "2000": ("Accounts Payable", "liability"),
+    "2100": ("Sales Tax Payable", "liability"),
     "3000": ("Owner Equity", "equity"),
     "4000": ("Sales Revenue", "revenue"),
     "5000": ("Cost of Goods Sold", "expense"),
