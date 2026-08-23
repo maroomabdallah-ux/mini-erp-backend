@@ -6,10 +6,11 @@ from app.db.session import SessionLocal
 from app.features.reports.service import (
     dashboard,
     monthly_sales,
+    profit,
+    receivables_aging,
     top_products,
-     profit,
-     receivables_aging,
 )
+
 
 @tool
 def get_dashboard_summary() -> dict:

@@ -3,6 +3,8 @@ from langchain.tools import tool
 from app.db.session import SessionLocal
 from app.features.customers.service import (
     get_customer as get_customer_service,
+)
+from app.features.customers.service import (
     list_customers,
 )
 

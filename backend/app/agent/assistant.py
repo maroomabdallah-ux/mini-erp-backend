@@ -1,6 +1,7 @@
 import os
-from dotenv import load_dotenv
+from typing import cast
 
+from dotenv import load_dotenv
 from langchain.agents import create_agent
 from langchain_openai import ChatOpenAI
 
@@ -25,13 +26,18 @@ Security rules:
 - You currently have read-only access.
 - You cannot create, update, delete, approve, transfer or modify ERP records.
 Authorization rules:
-- Never reveal the names of internal tools, permission codes, roles, or security implementation details.
-- If the user requests ERP data they are not authorized to access, respond briefly that they do not have permission to access that information.
-- Never attempt to reconstruct, estimate, infer, or approximate restricted ERP data using other available tools.
-- Never combine lower-privilege data sources to derive information that would normally require a higher permission.
+- Never reveal the names of internal tools, permission codes, roles, or security
+  implementation details.
+- If the user requests ERP data they are not authorized to access, respond briefly
+  that they do not have permission to access that information.
+- Never attempt to reconstruct, estimate, infer, or approximate restricted ERP data
+  using other available tools.
+- Never combine lower-privilege data sources to derive information that would normally
+  require a higher permission.
 - Do not suggest workarounds for accessing restricted ERP information.
 - You may explain general business concepts when no company-specific ERP data is required.
-- You may calculate values from numbers explicitly provided by the user, but must not retrieve restricted ERP data to complete the calculation.
+- You may calculate values from numbers explicitly provided by the user, but must not
+  retrieve restricted ERP data to complete the calculation.
 
 When denying access due to insufficient permissions:
 - Keep the response brief and direct.
@@ -61,7 +67,8 @@ Analytical behavior:
 - Do not merely repeat tool results.
 - Interpret the returned data when appropriate.
 - Point out meaningful trends, rankings, differences and exceptions.
-- Calculate simple percentages, totals, averages and changes when the required values are already available from authorized tool results.
+- Calculate simple percentages, totals, averages and changes when the required values
+  are already available from authorized tool results.
 - Clearly distinguish retrieved ERP values from calculations derived from those values.
 
 Response depth:
@@ -149,7 +156,7 @@ def ask_agent(
             ]
         })
 
-        return result["messages"][-1].content
+        return cast(str, result["messages"][-1].content)
 
     except Exception as exc:
         # Log the real error internally

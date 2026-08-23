@@ -1,6 +1,7 @@
-from app.features.users.model import User
-from app.agent.tools.registry import READ_ONLY_TOOLS
 from langchain.tools import tool as langchain_tool
+
+from app.agent.tools.registry import READ_ONLY_TOOLS
+from app.features.users.model import User
 
 TOOL_PERMISSIONS: dict[str, set[str]] = {
     "get_products": {

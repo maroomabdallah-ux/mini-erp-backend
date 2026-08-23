@@ -5,11 +5,10 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.agent.router import router as agent_router
 from app.core.config import settings
 from app.core.exceptions import AppError
 from app.routers import api_router
-from fastapi import FastAPI
-from app.agent.router import router as agent_router
 
 app = FastAPI(
     title=settings.app_name,

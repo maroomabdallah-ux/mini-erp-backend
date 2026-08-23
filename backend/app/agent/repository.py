@@ -1,3 +1,5 @@
+from typing import cast
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -17,11 +19,14 @@ def list_conversations(db: Session, user_id: int) -> list[ChatConversation]:
 def get_conversation(
     db: Session, conversation_id: int, user_id: int
 ) -> ChatConversation | None:
-    return db.scalar(
-        select(ChatConversation)
-        .options(selectinload(ChatConversation.messages))
-        .where(
-            ChatConversation.id == conversation_id,
-            ChatConversation.user_id == user_id,
+    return cast(
+        ChatConversation | None,
+        db.scalar(
+            select(ChatConversation)
+            .options(selectinload(ChatConversation.messages))
+            .where(
+                ChatConversation.id == conversation_id,
+                ChatConversation.user_id == user_id,
+            )
         )
     )
