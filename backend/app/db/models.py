@@ -1,5 +1,6 @@
 """Register all SQLAlchemy models with metadata for Alembic."""
 
+from app.agent.models import ChatConversation, ChatMessage
 from app.features.accounting.models import (
     Account,
     JournalEntry,
@@ -26,6 +27,8 @@ from app.features.warehouses.models import Warehouse
 
 __all__ = [
     "AuditLog",
+    "ChatConversation",
+    "ChatMessage",
     "Account",
     "Category",
     "Customer",

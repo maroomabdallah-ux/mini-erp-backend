@@ -18,6 +18,101 @@ Secrets are never committed. Copy `.env.example` to `.env` and replace every pla
 The root `.env` is also loaded when the API runs directly from `backend`; its
 `DATABASE_URL` uses `localhost:5434`, while Docker overrides that value internally.
 
+## ERP AI Assistant
+
+The backend includes an authenticated AI assistant for asking natural-language
+questions about authorized Mini ERP data. It is built with:
+
+- **LangChain** for agent orchestration and tool calling.
+- **LangChain OpenAI** and `ChatOpenAI` for the language model integration.
+- **FastAPI** for the protected chat and conversation-history endpoints.
+- **SQLAlchemy 2.0**, **PostgreSQL**, and **Alembic** for persistent conversations
+  and messages.
+- The existing **JWT authentication** and **RBAC permission system** for user
+  identity and data access.
+
+The frontend never communicates with OpenAI directly and never contains an
+OpenAI API key. The request flow is:
+
+```text
+React frontend
+    ↓ JWT-authenticated request
+FastAPI /agent endpoints
+    ↓ permission-filtered ERP tools
+LangChain Agent
+    ↓
+OpenAI
+```
+
+### Current Assistant Capabilities
+
+The assistant can answer questions using the read tools allowed by the current
+user's effective permissions. Available areas include products, inventory,
+customers, dashboard summaries, monthly sales, top products, profit reporting,
+and receivables aging when the user has the corresponding access.
+
+Tool access is assembled separately for every authenticated user. The assistant
+cannot use a restricted ERP tool, and it is instructed not to infer, estimate,
+or reconstruct data the user is not authorized to see.
+
+The assistant is currently **read-only**. It cannot:
+
+- Create or update ERP records.
+- Delete or deactivate records.
+- Approve purchase orders or stock counts.
+- Transfer or adjust inventory.
+- Post invoices, payments, or journal entries.
+- Perform any other operation that changes business data.
+
+This boundary is enforced by exposing only permission-filtered read tools to the
+LangChain Agent. Write and approval tools are not currently registered.
+
+### Conversation History
+
+Chat history is stored per user in PostgreSQL. Each conversation belongs to one
+authenticated user, and ownership checks prevent users from reading or deleting
+another user's conversations. Users can start a new conversation, list their
+saved conversations, reopen one with its messages, continue it with context, or
+delete it.
+
+For model context and cost control, the Agent receives up to the latest 20 saved
+messages from the selected conversation. The complete conversation remains
+stored for display in the frontend.
+
+The AI endpoints are:
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /agent/chat` | Send a message and create or continue a conversation |
+| `GET /agent/conversations` | List the current user's conversations |
+| `POST /agent/conversations` | Create an empty conversation |
+| `GET /agent/conversations/{id}` | Load one owned conversation and its messages |
+| `DELETE /agent/conversations/{id}` | Delete one owned conversation |
+
+Example chat request:
+
+```json
+{
+  "message": "Show me the low stock products",
+  "conversation_id": 12
+}
+```
+
+`conversation_id` is optional. If omitted, the backend creates a conversation
+from the first successful message and returns its ID with the answer.
+
+The Agent requires `OPENAI_API_KEY`. The model can be selected with
+`OPENAI_MODEL`; when omitted, the backend uses its configured default. Keep
+these values in the backend environment only.
+
+After pulling a version that introduces chat history or changes Agent
+dependencies, rebuild the API image and apply migrations:
+
+```bash
+docker compose build api
+docker compose run --rm api alembic upgrade head
+```
+
 ## 1. Run the Project
 
 From the project root directory, start PostgreSQL and the API:

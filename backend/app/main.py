@@ -8,6 +8,8 @@ from fastapi.responses import JSONResponse
 from app.core.config import settings
 from app.core.exceptions import AppError
 from app.routers import api_router
+from fastapi import FastAPI
+from app.agent.router import router as agent_router
 
 app = FastAPI(
     title=settings.app_name,
@@ -36,6 +38,7 @@ async def add_security_headers(request: Request, call_next):
     return response
 
 app.include_router(api_router)
+app.include_router(agent_router)
 
 
 @app.exception_handler(RequestValidationError)
