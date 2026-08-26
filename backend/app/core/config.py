@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     )
     login_max_attempts: int = 5
     login_window_minutes: int = 15
+    agent_max_history_messages: int = Field(20, ge=1, le=100)
+    agent_max_tool_results: int = Field(50, ge=1, le=100)
+    agent_pending_action_minutes: int = Field(15, ge=1, le=60)
 
     @field_validator("jwt_secret")
     @classmethod

@@ -2,6 +2,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.agent.action_schemas import PendingActionResponse
+
 
 class AgentChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
@@ -11,6 +13,7 @@ class AgentChatRequest(BaseModel):
 class AgentChatResponse(BaseModel):
     answer: str
     conversation_id: int
+    pending_action: PendingActionResponse | None = None
 
 
 class ConversationCreate(BaseModel):

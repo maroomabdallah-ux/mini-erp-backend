@@ -24,6 +24,7 @@ from app.features.sales.exceptions import (
 )
 from app.features.sales.models import SalesDelivery, SalesDeliveryItem, SalesOrder, SalesOrderItem
 from app.features.sales.schemas import SalesDeliveryCreate, SalesOrderConfirm, SalesOrderCreate
+from app.features.warehouses.models import Warehouse
 from app.features.warehouses import repository as warehouse_repository
 
 
@@ -210,14 +211,11 @@ def convert_quotation(
     return _get(db, order.id)
 
 
-def confirm_order(
+def validate_order_confirmation(
     db: Session,
     order_id: int,
     data: SalesOrderConfirm,
-    *,
-    actor_id: int,
-    ip_address: str | None,
-) -> SalesOrder:
+) -> tuple[SalesOrder, Warehouse, Decimal, Decimal, bool]:
     order = _get(db, order_id, lock=True)
     if order.status != "draft":
         raise SalesOrderStateError("Only draft sales orders can be confirmed.")
@@ -261,6 +259,21 @@ def confirm_order(
                 "exposure": f"Resulting exposure {exposure:.2f}",
             },
         )
+    return order, warehouse, open_receivables, exposure, limit_exceeded
+
+
+def confirm_order(
+    db: Session,
+    order_id: int,
+    data: SalesOrderConfirm,
+    *,
+    actor_id: int,
+    ip_address: str | None,
+    commit: bool = True,
+) -> SalesOrder:
+    order, warehouse, open_receivables, exposure, limit_exceeded = (
+        validate_order_confirmation(db, order_id, data)
+    )
     order.credit_warning = (
         f"Credit limit {order.customer.credit_limit:.2f} exceeded; exposure {exposure:.2f}."
         if limit_exceeded
@@ -285,6 +298,8 @@ def confirm_order(
             "credit_exposure": f"{exposure:.2f}",
         },
     )
+    if not commit:
+        return order
     _commit(db)
     return _get(db, order.id)
 

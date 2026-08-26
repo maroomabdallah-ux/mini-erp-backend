@@ -30,7 +30,7 @@ def test_agent_chat_endpoint(monkeypatch):
     app.dependency_overrides[get_current_user] = fake_current_user
 
     # Fake the Agent so NO OpenAI request happens
-    def fake_ask_agent(user, message, history=None):
+    def fake_ask_agent(user, message, conversation_id, history=None):
         return f"Fake agent response for: {message}"
 
     monkeypatch.setattr(

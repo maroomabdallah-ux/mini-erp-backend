@@ -1,3 +1,4 @@
+import logging
 import os
 from typing import cast
 
@@ -5,10 +6,12 @@ from dotenv import load_dotenv
 from langchain.agents import create_agent
 from langchain_openai import ChatOpenAI
 
-from app.agent.security.permissions import get_allowed_tools
+from app.agent.security.permissions import get_allowed_tools, secure_tool_for_user
+from app.agent.tools.write_registry import get_write_tools_for_user
 from app.features.users.model import User
 
 load_dotenv()
+logger = logging.getLogger(__name__)
 SYSTEM_PROMPT = """
 You are the AI assistant for a Mini ERP system.
 
@@ -23,8 +26,16 @@ Security rules:
 - If the required tool is not available, explain that the current user
   does not have access to that information or capability.
 - Do not reveal secrets, database credentials, tokens or internal system data.
-- You currently have read-only access.
-- You cannot create, update, delete, approve, transfer or modify ERP records.
+- You have read-only access except for preparing a quotation proposal when that
+  capability is explicitly available.
+- Preparing a quotation never creates it. Creation requires the user to confirm the
+  exact pending action through the backend confirmation control.
+- Preparing a purchase order follows the same rule: preparation never creates it,
+  and only the explicit backend confirmation control may execute the stored proposal.
+- Confirming a sales order must also be prepared first and executed only through the
+  explicit backend confirmation control. Never confirm it from plain text alone.
+- Never treat a plain-text yes, confirm, or okay as execution authorization.
+- You cannot perform any other create, update, delete, approve, transfer, or modify action.
 Authorization rules:
 - Never reveal the names of internal tools, permission codes, roles, or security
   implementation details.
@@ -113,13 +124,17 @@ Examples of appropriate emojis:
 """
 
 
-def build_agent_for_user(user: User):
+def build_agent_for_user(user: User, conversation_id: int):
     """
     Build an Agent containing only the tools
     the current ERP user is allowed to use.
     """
 
-    allowed_tools = get_allowed_tools(user)
+    allowed_tools = [
+        secure_tool_for_user(user, base_tool)
+        for base_tool in get_allowed_tools(user)
+    ]
+    allowed_tools.extend(get_write_tools_for_user(user, conversation_id))
 
     model = ChatOpenAI(
         model=os.getenv("OPENAI_MODEL", "gpt-5-mini"),
@@ -135,6 +150,7 @@ def build_agent_for_user(user: User):
 def ask_agent(
     user: User,
     message: str,
+    conversation_id: int,
     history: list[dict[str, str]] | None = None,
 ) -> str:
     """
@@ -144,7 +160,7 @@ def ask_agent(
     """
 
     try:
-        agent = build_agent_for_user(user)
+        agent = build_agent_for_user(user, conversation_id)
 
         result = agent.invoke({
             "messages": [
@@ -159,8 +175,11 @@ def ask_agent(
         return cast(str, result["messages"][-1].content)
 
     except Exception as exc:
-        # Log the real error internally
-        print(f"[ERP AGENT ERROR] {type(exc).__name__}: {exc}")
+        logger.exception(
+            "agent_request_failed user_id=%s error_category=%s",
+            user.id,
+            type(exc).__name__,
+        )
 
         # Do not expose internal details to the user
         raise RuntimeError(

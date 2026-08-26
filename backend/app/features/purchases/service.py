@@ -170,12 +170,27 @@ def get_purchase_order(db: Session, purchase_order_id: int) -> PurchaseOrder:
     return _order_or_error(db, purchase_order_id)
 
 
+def preview_purchase_order(db: Session, data: PurchaseOrderCreate) -> PurchaseOrder:
+    """Validate and calculate a purchase order without persisting it."""
+    _validate_entities(db, data)
+    order = PurchaseOrder(
+        supplier_id=data.supplier_id,
+        warehouse_id=data.warehouse_id,
+        expected_date=data.expected_date,
+        notes=data.notes,
+        status="draft",
+    )
+    _replace_items(order, data)
+    return order
+
+
 def create_purchase_order(
     db: Session,
     data: PurchaseOrderCreate,
     *,
     actor_id: int,
     ip_address: str | None,
+    commit: bool = True,
 ) -> PurchaseOrder:
     _validate_entities(db, data)
     order = PurchaseOrder(
@@ -199,6 +214,8 @@ def create_purchase_order(
         ip_address=ip_address,
         new_values=_snapshot(order),
     )
+    if not commit:
+        return order
     _commit(db)
     return _order_or_error(db, order.id)
 

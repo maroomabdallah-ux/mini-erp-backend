@@ -141,8 +141,25 @@ def get_quotation(db: Session, quotation_id: int) -> Quotation:
     return _get(db, quotation_id)
 
 
+def preview_quotation(db: Session, data: QuotationCreate) -> Quotation:
+    """Validate and calculate a quotation without persisting it."""
+    _validate(db, data)
+    quotation = Quotation(
+        customer_id=data.customer_id,
+        valid_until=data.valid_until,
+        notes=data.notes,
+    )
+    _replace(quotation, data)
+    return quotation
+
+
 def create_quotation(
-    db: Session, data: QuotationCreate, *, actor_id: int, ip_address: str | None
+    db: Session,
+    data: QuotationCreate,
+    *,
+    actor_id: int,
+    ip_address: str | None,
+    commit: bool = True,
 ) -> Quotation:
     _validate(db, data)
     quotation = Quotation(
@@ -156,6 +173,8 @@ def create_quotation(
     db.add(quotation)
     db.flush()
     _audit(db, quotation, actor_id=actor_id, action="create", ip_address=ip_address)
+    if not commit:
+        return quotation
     db.commit()
     return _get(db, quotation.id)
 
