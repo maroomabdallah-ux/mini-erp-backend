@@ -28,8 +28,8 @@ class Settings(BaseSettings):
         "http://localhost:5174,http://127.0.0.1:5174,"
         "http://localhost:5175,http://127.0.0.1:5175"
     )
-    login_max_attempts: int = 5
-    login_window_minutes: int = 15
+    login_max_attempts: int = Field(5, ge=0)
+    login_window_minutes: int = Field(15, ge=1)
     agent_max_history_messages: int = Field(20, ge=1, le=100)
     agent_max_tool_results: int = Field(50, ge=1, le=100)
     agent_pending_action_minutes: int = Field(15, ge=1, le=60)

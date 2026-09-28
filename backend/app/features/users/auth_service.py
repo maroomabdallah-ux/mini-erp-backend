@@ -19,6 +19,10 @@ from app.features.users.model import LoginAttempt, RefreshToken, User
 
 
 def _check_rate_limit(db: Session, ip_address: str) -> None:
+    # A zero limit explicitly disables temporary login lockouts while keeping
+    # failed-attempt recording and audit visibility intact.
+    if settings.login_max_attempts <= 0:
+        return
     cutoff = datetime.now(UTC) - timedelta(minutes=settings.login_window_minutes)
     db.execute(delete(LoginAttempt).where(LoginAttempt.attempted_at < cutoff))
     attempts = db.scalar(
